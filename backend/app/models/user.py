@@ -4,21 +4,22 @@
 # ============================================================================
 
 from sqlalchemy import Column, Integer, String, Boolean, DateTime
-from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-from app.core.database import Base
+from sqlalchemy.orm import relationship
+from app.models.base import Base
+
 
 class User(Base):
     __tablename__ = "users"
-    
+
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(100), nullable=False)
     email = Column(String(255), nullable=False, unique=True, index=True)
-    department = Column(String(100))
-    phone = Column(String(20))
-    active = Column(Boolean, default=True)
+    first_name = Column(String(100))
+    last_name = Column(String(100))
+    glpi_user_id = Column(Integer, unique=True)
+    is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
-    
+    last_login = Column(DateTime(timezone=True))
+
     # Relations
-    created_tickets = relationship("Ticket", back_populates="created_by_user")
+    tickets = relationship("Ticket", back_populates="created_by_user")

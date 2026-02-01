@@ -1,62 +1,28 @@
 # ============================================================================
 # FICHIER : backend/app/models/category.py
-# DESCRIPTION : Modèle SQLAlchemy pour les catégories (CORRIGÉ)
+# DESCRIPTION : Modèle SQLAlchemy pour les catégories
 # ============================================================================
 
-from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime
-from sqlalchemy.orm import relationship
+from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime, Text
 from sqlalchemy.sql import func
-from app.core.database import Base
+from sqlalchemy.orm import relationship
+from app.models.base import Base
+
 
 class Category(Base):
     __tablename__ = "categories"
-    
+
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(100), nullable=False, unique=True)
-    abbreviation = Column(String(10), nullable=False)
-    parent_id = Column(Integer, ForeignKey("categories.id"), nullable=True)
+    name = Column(String(100), nullable=False)
+    abbreviation = Column(String(20), nullable=False, unique=True)
+    level = Column(Integer, nullable=False, default=2)
+    parent_id = Column(Integer, ForeignKey("categories.id"))
+    glpi_category_id = Column(Integer, unique=True)
     description = Column(Text)
-    level = Column(Integer, nullable=False, default=1)
+    is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    
-    # ========== RELATIONS ==========
-    
-    # Auto-référence : parent/enfants
-    parent = relationship(
-        "Category",
-        remote_side=[id],
-        back_populates="subcategories",
-        foreign_keys=[parent_id]
-    )
-    
-    subcategories = relationship(
-        "Category",
-        back_populates="parent",
-        foreign_keys=[parent_id]
-    )
-    
-    # ✅ Tickets avec catégorie réelle
-    tickets = relationship(
-        "Ticket",
-        foreign_keys="Ticket.category_id",
-        back_populates="category"
-    )
-    
-    # ✅ Tickets avec catégorie suggérée par l'IA
-    suggested_tickets = relationship(
-        "Ticket",
-        foreign_keys="Ticket.ai_suggested_category_id",
-        back_populates="ai_suggested_category"
-    )
-    
-    # Solutions
-    solutions = relationship(
-        "Solution",
-        back_populates="category"
-    )
-    
-    # Interventions
-    interventions = relationship(
-        "Intervention",
-        back_populates="category"
-    )
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relations
+    parent = relationship("Category", remote_side=[id], backref="children")
+    tickets = relationship("Ticket", back_populates="category")
