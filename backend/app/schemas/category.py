@@ -18,6 +18,6 @@ class CategoryCreate(CategoryBase):
 class CategoryRead(CategoryBase):
     id: int
     is_active: bool
-
+    
     class Config:
         from_attributes = True

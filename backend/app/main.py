@@ -11,6 +11,9 @@ from app.core.database import engine, Base
 
 # Créer les tables (en développement uniquement)
 Base.metadata.create_all(bind=engine)
+from app.api.v1 import glpi_webhook
+
+
 
 # Créer l'application FastAPI
 app = FastAPI(
@@ -29,7 +32,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
+app.include_router(
+    glpi_webhook.router,
+    prefix="/api/v1/glpi/webhook",
+    tags=["GLPI Webhook"]
+)
 # Inclure les routes API v1
 app.include_router(api_router, prefix="/api/v1")
 

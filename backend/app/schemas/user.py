@@ -16,6 +16,6 @@ class UserRead(UserBase):
     id: int
     glpi_user_id: Optional[int]
     is_active: bool
-
+    
     class Config:
         from_attributes = True

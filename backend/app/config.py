@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     
     # IA
     OPENAI_API_KEY: str = ""
+    OPENROUTER_API_KEY: str = ""  # Optional OpenRouter API key (openrouter.ai)
     USE_OLLAMA: bool = False
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "llama2"
@@ -41,9 +42,27 @@ class Settings(BaseSettings):
     
     # Logging
     LOG_LEVEL: str = "INFO"
-    
+
+    # ========================================================================
+    # GLPI CONFIGURATION
+    # ========================================================================
+
+    GLPI_ENABLED: bool = True  # Activer/désactiver l'intégration GLPI
+    GLPI_API_URL: str = "http://localhost/glpi/apirest.php"
+    GLPI_APP_TOKEN: str = ""  # À définir dans .env
+    GLPI_USER_TOKEN: str = ""  # À définir dans .env
+
+    # Mode de synchronisation
+    # "glpi_only": Créer uniquement dans GLPI
+    # "dual": Créer dans notre DB + GLPI
+    GLPI_SYNC_MODE: str = "dual"
+
+    # Webhook secret pour la vérification des signatures
+    GLPI_WEBHOOK_SECRET: str = ""  # Générer avec: openssl rand -hex 32
+
     class Config:
         env_file = ".env"
+        env_file_encoding = "utf-8"
         case_sensitive = True
 
 # Instance globale des settings

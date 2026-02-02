@@ -1,8 +1,3 @@
-# ============================================================================
-# FICHIER : backend/app/schemas/__init__.py
-# DESCRIPTION : Import centralisé des schémas
-# ============================================================================
-
 from app.schemas.category import CategoryBase, CategoryCreate, CategoryRead
 from app.schemas.user import UserBase, UserCreate, UserRead
 from app.schemas.ticket import TicketBase, TicketCreate, TicketRead

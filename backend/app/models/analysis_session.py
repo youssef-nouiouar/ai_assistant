@@ -1,8 +1,3 @@
-# ============================================================================
-# FICHIER : backend/app/models/analysis_session.py
-# DESCRIPTION : Modèle Analysis Session
-# ============================================================================
-
 from sqlalchemy import Column, String, Integer, DateTime, Numeric
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
@@ -12,7 +7,7 @@ import uuid
 
 class AnalysisSession(Base):
     __tablename__ = "analysis_sessions"
-
+    
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     expires_at = Column(DateTime(timezone=True), nullable=False)

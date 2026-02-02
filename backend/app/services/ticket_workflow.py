@@ -1,249 +1,561 @@
 # ============================================================================
 # FICHIER : backend/app/services/ticket_workflow.py
-# DESCRIPTION : Service de workflow complet pour Composant 0
+# DESCRIPTION : Service Workflow (Version Corrigée)
 # ============================================================================
 
+from requests import session
 from sqlalchemy.orm import Session
 from typing import Dict, List, Optional
-from datetime import datetime
-import json
+from datetime import datetime, timedelta, timezone
+
 
 from app.models.ticket import Ticket
 from app.models.category import Category
 from app.models.user import User
+from app.models.analysis_session import AnalysisSession
 from app.services.ai_analyzer import ai_analyzer
-from app.services.similarity_detector import similarity_detector
+from app.services.intent_validator import intent_validator
+from app.core.exceptions import (
+    SessionNotFoundError,
+    SessionAlreadyConvertedError,
+    InvalidUserResponseError,
+    AIAnalysisError
+)
+from app.integrations.glpi_client import get_glpi_client, GLPIClientError
+from app.core.config import settings
+from app.core.constants import (
+    ConfidenceThresholds,
+    Messages,
+    ClarificationQuestions,
+    ModifiableFields,
+    SESSION_EXPIRATION_MINUTES,
+    MAX_CLARIFICATION_ATTEMPTS
+)
+from app.core.logger import structured_logger
 
 
 class TicketWorkflow:
     """
-    Gestionnaire du workflow complet du Composant 0
+    Workflow Composant 0 (Version Corrigée et Renforcée)
     
-    Rôle : Transformer un message utilisateur en ticket structuré et validé
+    Corrections appliquées :
+    - ✅ Clarification avec questions ciblées
+    - ✅ Modification restreinte (pas de priorité)
+    - ✅ Gestion des cas où category = None
+    - ✅ Limite de tentatives de clarification
+    - ✅ Détection message trop vague
     """
     
-    async def process_user_message(
+    # ========================================================================
+    # ÉTAPE 1 : ANALYSE DU MESSAGE
+    # ========================================================================
+    
+    async def analyze_message(
         self,
         db: Session,
         message: str,
-        user_email: Optional[str] = None
+        user_email: Optional[str] = None,
+        parent_session_id: Optional[str] = None
     ) -> Dict:
         """
-        Point d'entrée principal du Composant 0
+        Analyse le message (Version Corrigée)
         
-        Flux:
-        1. Analyse IA du message
-        2. Génération Smart Summary
-        3. Détection tickets similaires (sans bloquer)
-        4. Retour pour validation utilisateur
-        
-        Args:
-            db: Session base de données
-            message: Message brut de l'utilisateur
-            user_email: Email utilisateur (optionnel)
-        
-        Returns:
-            Dict avec le smart_summary et les actions possibles
+        Améliorations :
+        - Gestion des cas où confiance < 30% (too_vague)
+        - Compteur de tentatives de clarification
+        - Questions ciblées selon infos manquantes
         """
+        structured_logger.log_analysis_started(message, user_email)
         
-        # 1. Récupérer les catégories
-        categories = self._get_categories(db)
+        # Récupérer le nombre de tentatives précédentes
+        attempts = 0
+        if parent_session_id:
+            parent = db.query(AnalysisSession).filter(
+                AnalysisSession.id == parent_session_id
+            ).first()
+            if parent:
+                attempts = parent.clarification_attempts + 1
+        print(f"\nAnalyse du message, tentative n°{attempts + 1}")
+        # Vérifier limite de tentatives
+        if attempts >= MAX_CLARIFICATION_ATTEMPTS:
+            return await self._handle_max_attempts_reached(
+                db=db,
+                message=message,
+                user_email=user_email,
+                attempts=attempts
+            )
         
-        # 2. Analyse IA complète
-        ai_analysis = await ai_analyzer.analyze_message_with_smart_summary(
-            message=message,
-            categories=categories
-        )
-        
-        # 3. Détection tickets similaires (NON BLOQUANT)
-        similar_tickets = await similarity_detector.find_similar_tickets(
-            db=db,
-            message=message,
-            category_id=ai_analysis["suggested_category_id"],
-            threshold=0.70,
-            max_results=5
-        )
-        
-        # 4. Préparer le Smart Summary
-        smart_summary = {
-            "category": {
-                "id": ai_analysis["suggested_category_id"],
-                "name": ai_analysis["suggested_category_name"],
-                "confidence": ai_analysis["confidence_score"]
-            },
-            "priority": ai_analysis["suggested_priority"],
-            "title": ai_analysis["extracted_title"],
-            "symptoms": ai_analysis["extracted_symptoms"],
-            "extracted_info": ai_analysis.get("extracted_info", {}),
-            "missing_info": ai_analysis.get("missing_info", [])
-        }
-        
-        # 5. Déterminer l'action recommandée
-        confidence = ai_analysis["confidence_score"]
-        
-        if confidence >= 0.85:
-            action = "auto_validate"
-            message_to_user = "✅ Voici ce que j'ai compris de votre demande :"
-        elif confidence >= 0.60:
-            action = "confirm_summary"
-            message_to_user = "🤔 Voici ce que j'ai compris. Pouvez-vous confirmer ?"
-        else:
-            action = "ask_clarification"
-            message_to_user = "❓ J'ai besoin d'une précision pour bien comprendre votre demande."
-        
-        return {
-            "type": "smart_summary",
-            "action": action,
-            "message": message_to_user,
-            "summary": smart_summary,
-            "similar_tickets": similar_tickets,
-            "has_similar": len(similar_tickets) > 0,
-            "user_email": user_email,
-            "original_message": message,
-            "analysis_metadata": ai_analysis  # Pour debug/logs
-        }
+        try:
+            # Récupérer les catégories
+            categories = self._get_categories(db)
+            print(f"\nCatégories disponibles : {len(categories)}")
+            if not categories:
+                raise AIAnalysisError("Aucune catégorie disponible pour l'analyse.")
+            # Analyse IA
+            analysis = await ai_analyzer.analyze_message_with_smart_summary(
+                message=message,
+                categories=categories
+            )
+            
+            confidence = analysis.get("confidence_score", 0.0)
+            print("\nRésultat de l'analyse IA :" + str(analysis))
+            # CORRECTION : Gérer le cas "too_vague" (confiance < 30%)
+            if confidence < ConfidenceThresholds.TOO_VAGUE:
+                return await self._handle_too_vague(
+                    db=db,
+                    message=message,
+                    user_email=user_email,
+                    attempts=attempts
+                )
+            
+            # Déterminer l'action
+            action = self._determine_action(confidence)
+            
+            # CORRECTION : Smart Summary peut avoir category = None
+            smart_summary = {
+                "category": {
+                    "id": analysis.get("suggested_category_id"),
+                    "name": analysis.get("suggested_category_name"),
+                    "confidence": confidence
+                } if analysis.get("suggested_category_id") else None,
+                "priority": analysis.get("suggested_priority"),
+                "title": analysis.get("extracted_title"),
+                "symptoms": analysis.get("extracted_symptoms", []),
+                "extracted_info": analysis.get("extracted_info", {}),
+                "missing_info": analysis.get("missing_info", []),  # NOUVEAU
+                "original_message": message
+            }
+            
+            # Créer la session
+            session = AnalysisSession(
+                ai_summary=smart_summary,
+                original_message=message,
+                confidence_score=str(confidence),
+                # has_category=analysis.get("suggested_category_id") is not None,
+                status="pending",
+                user_email=user_email,
+                action_type=action,
+                clarification_attempts=attempts,
+                parent_session_id=parent_session_id,
+                expires_at=datetime.now() + timedelta(minutes=SESSION_EXPIRATION_MINUTES)
+            )
+            
+            db.add(session)
+            db.commit()
+            db.refresh(session)
+            
+            structured_logger.log_analysis_completed(
+                session_id=session.id,
+                action=action,
+                confidence=confidence,
+                category=analysis.get("suggested_category_name", "None")
+            )
+            
+            # CORRECTION : Générer message avec questions ciblées
+            message_to_user = self._generate_message(
+                action=action,
+                summary=smart_summary,
+                missing_info=analysis.get("missing_info", []),
+                attempts=attempts
+            )
+            
+            # Questions de clarification ciblées
+            clarification_questions = None
+            if action == "ask_clarification":
+                clarification_questions = analysis.get("clarification_questions")
+                # clarification_questions = ClarificationQuestions.get_questions_for_missing_info(
+                #     smart_summary.get("missing_info", [])
+                # )
+            
+            return {
+                "session_id": session.id,
+                "type": "smart_summary",
+                "action": action,
+                "message": message_to_user,
+                "summary": smart_summary,
+                "clarification_questions": clarification_questions,  # NOUVEAU
+                "clarification_attempts": attempts,
+                "expires_at": session.expires_at.isoformat()
+            }
+            
+        except Exception as e:
+            structured_logger.log_error("AI_ANALYSIS", str(e))
+            raise AIAnalysisError(f"Erreur lors de l'analyse: {str(e)}")
     
-    async def create_ticket_after_validation(
+    # ========================================================================
+    # GESTION DES CAS LIMITES
+    # ========================================================================
+    
+    async def _handle_too_vague(
         self,
         db: Session,
-        validated_summary: Dict,
-        user_email: Optional[str] = None
+        message: str,
+        user_email: Optional[str],
+        attempts: int
     ) -> Dict:
         """
-        Crée le ticket après validation utilisateur
-        
-        RÈGLE CRITIQUE : Toujours créer le ticket, même si similaires détectés
-        
-        Args:
-            db: Session base de données
-            validated_summary: Résumé validé par l'utilisateur
-            user_email: Email utilisateur
-        
-        Returns:
-            Dict avec le ticket créé et son ID
+        Gère le cas où le message est trop vague (confidence < 30%)
         """
+        session = AnalysisSession(
+            ai_summary=None,  # Pas de résumé
+            original_message=message,
+            confidence_score="0.0",
+            # has_category=False,
+            status="too_vague",
+            user_email=user_email,
+            action_type="too_vague",
+            clarification_attempts=attempts,
+            expires_at=datetime.now() + timedelta(minutes=SESSION_EXPIRATION_MINUTES)
+        )
         
-        # 1. Récupérer l'utilisateur
+        db.add(session)
+        db.commit()
+        db.refresh(session)
+        
+        return {
+            "session_id": session.id,
+            "type": "smart_summary",
+            "action": "too_vague",
+            "message": Messages.TOO_VAGUE_MESSAGE,
+            "summary": None,
+            "clarification_questions": [
+                "• Quel appareil ou application est concerné ?",
+                "• Quel est le problème exact ?",
+                "• Depuis quand cela se produit-il ?"
+            ],
+            "clarification_attempts": attempts,
+            "expires_at": session.expires_at.isoformat()
+        }
+    
+    async def _handle_max_attempts_reached(
+        self,
+        db: Session,
+        message: str,
+        user_email: Optional[str],
+        attempts: int
+    ) -> Dict:
+        """
+        Gère le cas où l'utilisateur a dépassé le nombre max de tentatives
+        
+        Action : Créer un ticket avec catégorie générique + escalade L2
+        """
+        # Catégorie par défaut : "Non catégorisé"
+        default_category = db.query(Category).filter(
+            Category.abbreviation == "99-non-cat"
+        ).first()
+        
+        if not default_category:
+            # Créer la catégorie si elle n'existe pas
+            default_category = Category(
+                name="Non catégorisé",
+                abbreviation="99-non-cat",
+                level=1,
+                description="Tickets nécessitant clarification humaine"
+            )
+            db.add(default_category)
+            db.commit()
+            db.refresh(default_category)
+        
+        # Créer ticket avec priorité haute (nécessite attention)
         user = None
         if user_email:
             user = db.query(User).filter(User.email == user_email).first()
         
-        # 2. Préparer les données du ticket
-        category_id = validated_summary["summary"]["category"]["id"]
-        title = validated_summary["summary"]["title"]
-        symptoms = validated_summary["summary"]["symptoms"]
-        priority = validated_summary["summary"]["priority"]
-        original_message = validated_summary["original_message"]
-        
-        # 3. Générer description structurée
-        description = self._generate_ticket_description(
-            symptoms=symptoms,
-            extracted_info=validated_summary["summary"].get("extracted_info", {})
-        )
-        
-        # 4. Préparer similar_tickets JSON
-        similar_tickets_data = None
-        has_similar = False
-        if validated_summary.get("similar_tickets"):
-            similar_tickets_data = [
-                {
-                    "ticket_id": st["id"],
-                    "ticket_number": st["ticket_number"],
-                    "similarity_score": st["similarity_score"],
-                    "title": st["title"]
-                }
-                for st in validated_summary["similar_tickets"]
-            ]
-            has_similar = True
-        
-        # 5. CRÉER LE TICKET (TOUJOURS, sans blocage)
         ticket = Ticket(
-            title=title,
-            description=description,
-            user_message=original_message,
+            title=f"Demande nécessitant clarification : {message[:50]}...",
+            description=(
+                f"🤖 Ticket créé automatiquement après {attempts} tentatives de clarification.\n\n"
+                f"**Message utilisateur :**\n{message}\n\n"
+                f"**Raison :** Le chatbot n'a pas pu comprendre la demande après plusieurs échanges.\n"
+                f"**Action requise :** Un technicien doit contacter l'utilisateur pour clarifier."
+            ),
+            user_message=message,
             status="open",
-            priority=priority,
-            category_id=category_id,
+            priority="high",  # Haute priorité car bloque l'utilisateur
+            category_id=default_category.id,
             created_by_user_id=user.id if user else None,
-            
-            # Analyse IA
             ai_analyzed=True,
-            ai_suggested_category_id=category_id,
-            ai_confidence_score=validated_summary["summary"]["category"]["confidence"],
-            ai_extracted_symptoms=symptoms,
-            ai_analysis_metadata=validated_summary.get("analysis_metadata", {}),
-            
-            # Traçabilité doublons
-            similar_tickets=similar_tickets_data,
-            has_similar_tickets=has_similar,
-            
-            # Validation
-            user_validated_summary=True,
-            validation_method=validated_summary["action"],
-            
-            # Handoff
-            ready_for_L1=True,
-            handoff_to_L1_at=datetime.now()
+            ai_confidence_score=0.0,
+            ai_extracted_symptoms=[],
+            user_validated_summary=False,
+            validation_method="max_attempts_escalation",
+            ready_for_l1=False,  # Escalade directe L2
         )
         
         db.add(ticket)
         db.commit()
         db.refresh(ticket)
         
-        # 6. Récupérer le nom de la catégorie
-        category = db.query(Category).filter(Category.id == category_id).first()
-        
         return {
+            "type": "ticket_created",
             "ticket_id": ticket.id,
             "ticket_number": ticket.ticket_number,
             "title": ticket.title,
             "status": ticket.status,
             "priority": ticket.priority,
-            "category_name": category.name if category else "Unknown",
+            "category_name": default_category.name,
             "created_at": ticket.created_at.isoformat(),
-            "has_similar_tickets": has_similar,
-            "similar_count": len(similar_tickets_data) if similar_tickets_data else 0,
-            "ready_for_L1": ticket.ready_for_L1
+            "ready_for_L1": False,
+            "message": (
+                f"{Messages.MAX_ATTEMPTS_REACHED}\n\n"
+                f"✅ Ticket {ticket.ticket_number} créé.\n"
+                f"Un technicien vous contactera sous 30 minutes."
+            )
         }
     
-    async def handle_clarification_response(
+    # ========================================================================
+    # ACTIONS UTILISATEUR (Corrigées)
+    # ========================================================================
+    
+    async def handle_confirm_summary(
         self,
         db: Session,
-        original_message: str,
-        clarification_response: str,
-        user_email: Optional[str] = None
+        session_id: str,
+        user_action: str,
+        modifications: Optional[Dict] = None
     ) -> Dict:
         """
-        Gère la réponse à une question de clarification
+        Gère CONFIRM_SUMMARY (Version Corrigée)
         
-        Args:
-            db: Session base de données
-            original_message: Message original
-            clarification_response: Réponse de l'utilisateur
-            user_email: Email utilisateur
-        
-        Returns:
-            Nouveau smart_summary ou création de ticket
+        CORRECTION : Filtre les modifications interdites
         """
+        session = self._get_valid_session(db, session_id)
+        summary = session.ai_summary
         
-        # Combiner les messages
+        if user_action == "confirm":
+            pass  # Utiliser tel quel
+        
+        elif user_action == "modify":
+            if modifications:
+                # CORRECTION : Filtrer les champs autorisés
+                allowed_mods = ModifiableFields.validate_modifications(modifications)
+                
+                if not allowed_mods:
+                    raise InvalidUserResponseError(Messages.ERROR_INVALID_MODIFICATION)
+                
+                # Appliquer seulement les modifications autorisées
+                if "title" in allowed_mods:
+                    summary["title"] = allowed_mods["title"]
+                
+                if "symptoms" in allowed_mods:
+                    summary["symptoms"] = allowed_mods["symptoms"]
+                
+                structured_logger.log_error(
+                    "MODIFICATIONS_APPLIED",
+                    f"session={session_id}, fields={list(allowed_mods.keys())}"
+                )
+        
+        else:
+            raise InvalidUserResponseError("Action invalide: 'confirm' ou 'modify'")
+        
+        # Créer le ticket
+        ticket = await self._create_ticket(
+            db=db,
+            summary=summary,
+            user_email=session.user_email,
+            validation_method=f"confirm_summary_{user_action}"
+        )
+        
+        # Invalider session
+        session.status = "converted_to_ticket"
+        session.ticket_id = str(ticket["ticket_id"])
+        session.conversion_at = datetime.now()
+        db.commit()
+        
+        structured_logger.log_ticket_created(
+            ticket_id=ticket["ticket_id"],
+            ticket_number=ticket["ticket_number"],
+            session_id=session_id,
+            validation_method=f"confirm_{user_action}"
+        )
+        
+        return ticket
+    
+    async def handle_clarification(
+        self,
+        db: Session,
+        session_id: str,
+        clarification_response: str
+    ) -> Dict:
+        """
+        Gère ASK_CLARIFICATION (Version Corrigée)
+        
+        CORRECTION : Passe le session_id pour tracking des tentatives
+        """
+        session = self._get_valid_session(db, session_id)
+        original_message = session.original_message
+        
+        # Invalider l'ancienne session
+        session.status = "invalidated"
+        session.invalidation_reason = "clarification_provided"
+        db.commit()
+        
+        # Enrichir et ré-analyser
         enriched_message = f"{original_message}\n\nPrécision : {clarification_response}"
         
-        # Re-analyser avec le contexte enrichi
-        return await self.process_user_message(
+        return await self.analyze_message(
             db=db,
             message=enriched_message,
-            user_email=user_email
+            user_email=session.user_email,
+            parent_session_id=session_id  # CORRECTION : Passer le parent
         )
+
+    # Les autres méthodes (handle_auto_validate, _create_ticket) 
+
+    async def handle_auto_validate(
+        self,
+        db: Session,
+        session_id: str,
+        user_response: str
+    ) -> Dict:
+        """
+        Gère l'action AUTO_VALIDATE avec validation d'intention
+        
+        Améliorations :
+        - Récupère les données depuis la session (pas du frontend)
+        - Validation intelligente de la réponse
+        - Idempotence garantie
+        """
+        # 1. Récupérer la session (Source de vérité)
+        session = self._get_valid_session(db, session_id)
+        
+        # 2. Validation intelligente de l'intention
+        if not intent_validator.validate_positive_intent(user_response):
+            structured_logger.log_invalid_response(session_id, user_response)
+            raise InvalidUserResponseError(Messages.ERROR_INVALID_RESPONSE)
+        
+        # 3. Créer le ticket depuis les données SÉCURISÉES
+        ticket = await self._create_ticket(
+            db=db,
+            summary=session.ai_summary,
+            user_email=session.user_email,
+            validation_method="auto_validate"
+        )
+        
+        # 4. Invalider la session (Idempotence)
+        session.status = "converted_to_ticket"
+        session.ticket_id = str(ticket["ticket_id"])
+        session.conversion_at = datetime.now()
+        db.commit()
+        
+        structured_logger.log_ticket_created(
+            ticket_id=ticket["ticket_id"],
+            ticket_number=ticket["ticket_number"],
+            session_id=session_id,
+            validation_method="auto_validate"
+        )
+        
+        return ticket
     
     # ========================================================================
-    # MÉTHODES PRIVÉES
+    # UTILITAIRES
     # ========================================================================
+    
+    def _determine_action(self, confidence: float) -> str:
+        """Détermine l'action basée sur la confiance"""
+        if confidence >= ConfidenceThresholds.AUTO_VALIDATE:
+            return "auto_validate"
+        elif confidence >= ConfidenceThresholds.CONFIRM_SUMMARY:
+            return "confirm_summary"
+        elif confidence >= ConfidenceThresholds.ASK_CLARIFICATION:
+            return "ask_clarification"
+        else:
+            return "too_vague"
+    
+    def _generate_message(
+        self,
+        action: str,
+        summary: Dict,
+        missing_info: List[str] = None,
+        attempts: int = 0
+    ) -> str:
+        """
+        Génère le message utilisateur (Version Corrigée)
+        
+        CORRECTION : Questions ciblées pour clarification
+        """
+        if action == "auto_validate":
+            return Messages.AUTO_VALIDATE_MESSAGE.format(
+                summary=self._format_summary_display(summary)
+            )
+        
+        elif action == "confirm_summary":
+            return Messages.CONFIRM_SUMMARY_MESSAGE.format(
+                summary=self._format_summary_display(summary)
+            )
+        
+        elif action == "ask_clarification":
+            # CORRECTION : Questions ciblées
+            questions = ClarificationQuestions.get_questions_for_missing_info(
+                missing_info or []
+            )
+            missing_info_list = "\n".join(questions)
+            
+            prefix = f"**Tentative {attempts + 1}/{MAX_CLARIFICATION_ATTEMPTS}**\n\n" if attempts > 0 else ""
+            
+            return prefix + Messages.ASK_CLARIFICATION_MESSAGE.format(
+                missing_info_list=missing_info_list
+            )
+        
+        elif action == "too_vague":
+            return Messages.TOO_VAGUE_MESSAGE
+        
+        return "Message par défaut"
+    
+    def _format_summary_display(self, summary: Dict) -> str:
+        """Formatte le résumé pour affichage"""
+        parts = []
+        
+        if summary.get("category") and summary["category"].get("name"):
+            parts.append(f"📋 **Catégorie** : {summary['category']['name']}")
+        
+        if summary.get("priority"):
+            parts.append(f"🎯 **Priorité** : {summary['priority'].upper()}")
+        
+        if summary.get("title"):
+            parts.append(f"📝 **Titre** : {summary['title']}")
+        
+        if summary.get("symptoms"):
+            parts.append("\n**Symptômes identifiés** :")
+            for symptom in summary["symptoms"]:
+                parts.append(f"  • {symptom}")
+        
+        return "\n".join(parts) if parts else "Informations en cours d'analyse..."
+    
+    # Autres méthodes utilitaires identiques...
+    def _get_valid_session(self, db: Session, session_id: str) -> AnalysisSession:
+        """
+        Récupère une session valide
+        
+        Vérifie :
+        - Session existe
+        - Pas expirée
+        - Pas déjà convertie (idempotence)
+        """
+        session = db.query(AnalysisSession).filter(
+            AnalysisSession.id == session_id
+        ).first()
+        
+        if not session:
+            structured_logger.log_session_expired(session_id)
+            raise SessionNotFoundError(Messages.ERROR_SESSION_NOT_FOUND)
+        
+        # Vérifier expiration
+        if session.expires_at < datetime.now(timezone.utc):
+            session.status = "expired"
+            db.commit()
+            structured_logger.log_session_expired(session_id)
+            raise SessionNotFoundError(Messages.ERROR_SESSION_NOT_FOUND)
+        
+        # Vérifier si déjà convertie (idempotence)
+        if session.status == "converted_to_ticket":
+            structured_logger.log_session_already_used(session_id)
+            raise SessionAlreadyConvertedError(Messages.ERROR_SESSION_ALREADY_USED)
+        
+        return session
     
     def _get_categories(self, db: Session) -> List[Dict]:
-        """
-        Récupère toutes les sous-catégories (level 2)
-        """
+        """Récupère les sous-catégories"""
         categories = db.query(Category).filter(Category.level == 2).all()
         return [
             {
@@ -255,30 +567,191 @@ class TicketWorkflow:
             for cat in categories
         ]
     
-    def _generate_ticket_description(
-        self,
-        symptoms: List[str],
-        extracted_info: Dict
-    ) -> str:
-        """
-        Génère une description structurée du ticket
-        """
-        description_parts = ["🤖 Ticket créé automatiquement par le Composant 0\n"]
+    def _generate_description(self, symptoms: List[str], extracted_info: Dict) -> str:
+        """Génère une description structurée"""
+        parts = ["🤖 Ticket créé automatiquement\n"]
         
-        # Symptômes
-        description_parts.append("\n📋 **Symptômes identifiés :**")
+        parts.append("\n📋 **Symptômes** :")
         for symptom in symptoms:
-            description_parts.append(f"  • {symptom}")
+            parts.append(f"  • {symptom}")
         
-        # Informations extraites
         if extracted_info:
-            description_parts.append("\n\n🔍 **Informations extraites :**")
+            parts.append("\n\n🔍 **Informations extraites** :")
             for key, value in extracted_info.items():
                 if value:
-                    description_parts.append(f"  • {key.replace('_', ' ').title()}: {value}")
+                    parts.append(f"  • {key.replace('_', ' ').title()}: {value}")
         
-        return "\n".join(description_parts)
+        return "\n".join(parts)
 
-
+    async def _create_ticket(
+        self,
+        db: Session,
+        summary: Dict,
+        user_email: Optional[str],
+        validation_method: str
+    ) -> Dict:
+        """
+        Crée le ticket (VERSION MODIFIÉE AVEC GLPI)
+        """
+        # Récupérer l'utilisateur
+        user = None
+        if user_email:
+            user = db.query(User).filter(User.email == user_email).first()
+        
+        # Extraire les données
+        category_id = summary["category"]["id"] if summary.get("category") else None
+        title = summary.get("title", "Ticket sans titre")
+        symptoms = summary.get("symptoms", [])
+        priority = summary.get("priority", "medium")
+        original_message = summary.get("original_message", "")
+        
+        # Générer description
+        description = self._generate_description(
+            symptoms=symptoms,
+            extracted_info=summary.get("extracted_info", {})
+        )
+        
+        # ====================================================================
+        # CRÉATION DANS GLPI (SI ACTIVÉ)
+        # ====================================================================
+        
+        glpi_ticket_id = None
+        glpi_sync_at = None
+        
+        if settings.GLPI_ENABLED:
+            try:
+                glpi_client = get_glpi_client()
+                
+                # Créer le ticket dans GLPI
+                glpi_ticket = glpi_client.create_ticket(
+                    title=title,
+                    description=f"{description}\n\n---\nMessage original:\n{original_message}",
+                    category_id=category_id,
+                    priority=priority,
+                    user_email=user_email
+                )
+                
+                t = glpi_ticket.get("id")
+                glpi_sync_at = datetime.now()
+                
+                structured_logger.log_error(
+                    "GLPI_TICKET_CREATED",
+                    f"Ticket GLPI créé: ID={glpi_ticket_id}"
+                )
+                
+                # Ajouter un suivi IA dans GLPI
+                if glpi_ticket_id:
+                    ai_analysis_summary = (
+                        f"🤖 Analyse IA:\n"
+                        f"- Confiance: {summary.get('category', {}).get('confidence', 0) * 100:.0f}%\n"
+                        f"- Méthode de validation: {validation_method}\n"
+                        f"- Symptômes: {', '.join(symptoms)}"
+                    )
+                    
+                    glpi_client.add_followup(
+                        ticket_id=glpi_ticket_id,
+                        content=ai_analysis_summary,
+                        is_private=True  # Suivi privé pour les techniciens
+                    )
+                
+            except GLPIClientError as e:
+                structured_logger.log_error("GLPI_SYNC_ERROR", str(e))
+                # Ne pas bloquer la création si GLPI échoue
+                if settings.GLPI_SYNC_MODE == "glpi_only":
+                    raise Exception(f"Impossible de créer le ticket dans GLPI: {str(e)}")
+        
+        # ====================================================================
+        # CRÉATION DANS NOTRE BASE DE DONNÉES
+        # ====================================================================
+        
+        ticket = Ticket(
+            ticket_number=self.generate_ticket_number(db),
+            title=title,
+            description=description,
+            user_message=original_message,
+            status="open",
+            priority=priority,
+            category_id=None ,#if category_id is str else category_id,
+            created_by_user_id=user.id if user else None,
+            
+            # IA
+            # ai_analyzed=True,
+            # ai_suggested_category_id=category_id,
+            ai_confidence_score=summary.get("category", {}).get("confidence", 0.0),
+            ai_extracted_symptoms=symptoms,
+            # ai_analysis_metadata=summary,
+            
+            # Validation
+            # user_validated_summary=True,
+            validation_method=validation_method,
+            
+            # Handoff
+            ready_for_l1=True,
+            # handoff_to_l1_at=datetime.now(),
+            
+            # GLPI
+            glpi_ticket_id=glpi_ticket_id,
+            synced_to_glpi=glpi_ticket_id is not None,
+            glpi_sync_at=glpi_sync_at,
+            # glpi_status=1 if glpi_ticket_id else None  # 1 = Nouveau
+        )
+        
+        db.add(ticket)
+        db.commit()
+        db.refresh(ticket)
+        
+        # Récupérer nom catégorie
+        category = db.query(Category).filter(Category.id == category_id).first() if category_id else None
+        
+        # Message personnalisé
+        if glpi_ticket_id:
+            message = (
+                f"✅ **Ticket créé avec succès !**\n\n"
+                f"📋 Numéro: {ticket.ticket_number}\n"
+                f"🔗 GLPI ID: {glpi_ticket_id}\n"
+                f"📁 Catégorie: {category.name if category else 'N/A'}\n"
+                f"🎯 Priorité: {priority.upper()}\n\n"
+                f"🔍 Recherche de solutions en cours..."
+            )
+        else:
+            message = Messages.TICKET_CREATED_MESSAGE.format(
+                ticket_number=ticket.ticket_number,
+                category=category.name if category else "Unknown",
+                priority=priority.upper()
+            )
+        
+        return {
+            "type": "ticket_created",
+            "ticket_id": ticket.id,
+            "ticket_number": ticket.ticket_number,
+            "glpi_ticket_id": glpi_ticket_id,
+            "title": ticket.title,
+            "status": ticket.status,
+            "priority": ticket.priority,
+            "category_name": category.name if category else "Unknown",
+            "created_at": ticket.created_at.isoformat(),
+            "ready_for_L1": ticket.ready_for_l1,
+            "synced_to_glpi": ticket.synced_to_glpi,
+            "message": message
+        }
+# funtion moved to utils/ticket_utils.py
+    @staticmethod
+    def generate_ticket_number(db):
+        """
+        Génère un numéro de ticket unique : TKT-YYYY-NNNNN
+        """
+        current_year = datetime.now().year
+        last_ticket = db.query(Ticket).filter(
+            Ticket.ticket_number.like(f'TKT-{current_year}-%')
+        ).order_by(Ticket.id.desc()).first()
+        
+        if last_ticket:
+            seq_num = int(last_ticket.ticket_number.split('-')[-1]) + 1
+        else:
+            seq_num = 1
+        
+        ticket_number = f"TKT-{current_year}-{seq_num:05d}"
+        # ALSO REMOVE: db.close()  <-- Don't close the session here!
+        return ticket_number
 # Instance globale
 ticket_workflow = TicketWorkflow()

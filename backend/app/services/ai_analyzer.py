@@ -1,173 +1,208 @@
 # ============================================================================
-# FICHIER : backend/app/services/ai_analyzer.py
-# DESCRIPTION : Service d'analyse IA mis à jour pour Smart Summary
+# FICHIER : backend/app/services/ai_analyzer.py (VERSION OPTIMISÉE)
 # ============================================================================
 
-from typing import Dict, List
+from typing import Dict, List, Any
+import requests
 import openai
 import json
 from app.config import settings
+import hashlib
+import time
 
 
 class AIAnalyzer:
-    """
-    Service d'analyse IA pour Smart Summary
-    """
-    
+
     def __init__(self):
+        # Support OpenRouter as alternative to OpenAI (use OPENROUTER_API_KEY env var)
+        self.use_openrouter = False
+        self.openrouter_api_key = getattr(settings, "OPENROUTER_API_KEY", "")
         if not settings.USE_OLLAMA:
-            openai.api_key = settings.OPENAI_API_KEY
-    
+            if self.openrouter_api_key:
+                self.use_openrouter = True
+            else:
+                openai.api_key = settings.OPENAI_API_KEY
+
+        # Cache local (optionnel)
+        self.local_cache = {}
+
+    # ----------------------------------------------------------------------
+    # ANALYSE PRINCIPALE
+    # ----------------------------------------------------------------------
     async def analyze_message_with_smart_summary(
         self,
         message: str,
         categories: List[Dict]
     ) -> Dict:
-        """
-        Analyse complète pour générer un Smart Summary
-        
-        Args:
-            message: Message utilisateur
-            categories: Liste des catégories disponibles
-        
-        Returns:
-            Dict contenant toutes les informations pour le Smart Summary
-        """
+
+        # --- Cache (optionnel mais très utile pour réduire le coût + temps)
+        cache_key = hashlib.sha256(message.encode()).hexdigest()
+        if cache_key in self.local_cache:
+            return self.local_cache[cache_key]
         
         categories_text = "\n".join([
-            f"- ID: {cat['id']}, Nom: {cat['name']}, Abbr: {cat['abbreviation']}"
+            f"{cat['id']} | {cat['name']} | {cat['abbreviation']}"
             for cat in categories
         ])
-        
-        prompt = f"""Tu es un assistant IT expert. Analyse ce message et extrait TOUTES les informations possibles.
+        user_prompt = f"""
+MESSAGE:
+{message}
 
-MESSAGE UTILISATEUR:
-"{message}"
-
-CATÉGORIES DISPONIBLES:
+CATEGORIES:
 {categories_text}
 
-INSTRUCTIONS:
-1. Identifie la catégorie la plus appropriée
-2. Génère un titre court et clair (max 80 caractères)
-3. Extrais TOUS les symptômes mentionnés (2-5 éléments)
-4. Évalue la priorité (low, medium, high, critical)
-5. Extrais les informations structurées si disponibles
-6. Identifie les informations manquantes importantes
-7. Donne un score de confiance (0.00 - 1.00)
+Donne UNIQUEMENT une réponse JSON.
 
-RÉPONDS UNIQUEMENT EN JSON (pas de markdown):
-{{
-    "suggested_category_id": <ID>,
-    "confidence_score": <0.00-1.00>,
-    "extracted_title": "<titre court>",
-    "extracted_symptoms": ["symptôme 1", "symptôme 2", ...],
-    "suggested_priority": "low|medium|high|critical",
-    "extracted_info": {{
-        "device_type": "PC|Imprimante|Application|null",
-        "os": "Windows 10|Windows 11|Mac|null",
-        "onset": "Soudain|Progressif|Ce matin|null",
-        "location": "Bureau 301|null",
-        "error_message": "Message d'erreur exact|null"
-    }},
-    "missing_info": ["Info manquante 1", "Info manquante 2"],
-    "clarification_question": "Question à poser si confiance < 60%|null"
-}}
+Pour le champ "confidence_score", calcule un score entre 0.0 et 1.0 basé uniquement
+sur ces critères objectifs :
+
+1. Informations fournies (0 à 0.3 points)
+   - Message long et détaillé (0.3)
+   - Détails moyens (0.2)
+   - Message court ou vague (0.1)
+   - Très peu d'informations (0.0)
+
+2. Nombre de symptômes identifiés (0 à 0.2 points)
+   - 3–5 symptômes (0.2)
+   - 2 symptômes (0.1)
+   - 1 symptôme ou moins (0.0)
+
+3. Complétude de "extracted_info" (0 à 0.3 points)
+   - 4–5 champs remplis (0.3)
+   - 2–3 champs remplis (0.2)
+   - 1 champ rempli (0.1)
+   - 0 champs remplis (0.0)
+
+IMPORTANT : 
+- Le score final = somme des points (max = 1.0)
+- NE PAS dépasser 1.0
+- Tu dois appliquer ces règles strictement (pas d'intuition).
+4. Correspondance de catégorie (0 à 0.2 points)
+    - Catégorie très claire (0.2)
+    - Catégorie probable (0.1)
+    - Aucune catégorie identifiable (0.0)
+RÉPONSE JSON ATTENDUE :
 """
-        
         try:
-            result = await self._call_openai(prompt)
-            
-            # Ajouter le nom de la catégorie
+            result = await self._call_openai(user_prompt)
+
+            # Ajout du nom de la catégorie
             category = next(
                 (cat for cat in categories if cat["id"] == result["suggested_category_id"]),
                 None
             )
             result["suggested_category_name"] = category["name"] if category else "Unknown"
-            
+
+            # Stockage en cache
+            self.local_cache[cache_key] = result
+
             return result
-            
+
         except Exception as e:
-            print(f"Erreur analyse IA: {e}")
-            return self._default_analysis(message, categories)
-    
+            print("ERREUR LLM:", e)
+            # Retour minimal sans fallback heuristique
+            return {
+                "suggested_category_id": None,
+                "suggested_category_name": None,
+                "confidence_score": 0.0,
+                "extracted_title": "",
+                "extracted_symptoms": [],
+                "suggested_priority": "medium",
+                "extracted_info": {},
+                "missing_info": ["AI processing error"],
+                "clarification_question": "Pouvez-vous reformuler ?"
+            }
+
+    # ----------------------------------------------------------------------
+    # APPEL OPENAI (optimisé)
+    # ----------------------------------------------------------------------
     async def _call_openai(self, prompt: str) -> Dict:
-        """
-        Appel OpenAI avec gestion d'erreur
-        """
-        response = await openai.ChatCompletion.acreate(
-            model="gpt-4",
+
+        system_message = """
+Tu es un assistant IT expert. Ton rôle est d'analyser un ticket IT 
+et de renvoyer un JSON strict contenant :
+- suggested_category_id
+- confidence_score
+- extracted_title (max 80 chars)
+- extracted_symptoms (2 à 5 éléments)
+- suggested_priority (low, medium, high, critical)
+- extracted_info (device_type, os, onset, location, error_message)
+- missing_info
+- clarification_question (si confiance < 0.9)
+"""
+
+        # If configured, call OpenRouter HTTP API
+        if self.use_openrouter:
+            url = "https://openrouter.ai/api/v1/chat/completions"
+            headers = {
+                "Authorization": f"Bearer {self.openrouter_api_key}",
+                "Content-Type": "application/json",
+            }
+            payload = {
+                "model": "google/gemini-2.5-flash-lite-preview-09-2025",
+                "messages": [
+                    {"role": "system", "content": system_message},
+                    {"role": "user", "content": prompt},
+                ],
+                "temperature": 0.2,
+                "response_format": {"type": "json_object"},
+            }
+
+            resp = requests.post(url, headers=headers, json=payload, timeout=30)
+            resp.raise_for_status()
+            data = resp.json()
+
+            # Extract content robustly from different response shapes
+            content = None
+            if "choices" in data and len(data["choices"]) > 0:
+                choice = data["choices"][0]
+                msg = choice.get("message") or {}
+                if isinstance(msg, dict):
+                    content = msg.get("content")
+                else:
+                    content = choice.get("content")
+
+            # Fallbacks
+            if content is None:
+                content = data.get("output") or data.get("result") or json.dumps(data)
+
+            # Normalize and parse
+            if isinstance(content, dict):
+                return content
+            if isinstance(content, list):
+                # join list parts into string if necessary
+                try:
+                    joined = "".join([part.get("text") if isinstance(part, dict) and part.get("text") else str(part) for part in content])
+                    return json.loads(joined)
+                except Exception:
+                    return {"raw_response": content}
+            if isinstance(content, str):
+                try:
+                    return json.loads(content)
+                except Exception:
+                    import re
+                    m = re.search(r"(\{.*\})", content, re.DOTALL)
+                    if m:
+                        return json.loads(m.group(1))
+                    raise ValueError("Unable to parse model response as JSON")
+
+        # Fallback to OpenAI python client if configured
+        response = openai.chat.completions.create(
+            model="google/gemini-2.5-flash-lite-preview-09-2025",
+            response_format={"type": "json_object"},
             messages=[
                 {
                     "role": "system",
-                    "content": "Tu es un assistant IT expert qui analyse des demandes de support."
+                    "content": system_message
                 },
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.3,
+            temperature=0.2
         )
-        
-        content = response.choices[0].message.content.strip()
-        
-        # Nettoyer le JSON
-        if content.startswith("```json"):
-            content = content[7:]
-        if content.startswith("```"):
-            content = content[3:]
-        if content.endswith("```"):
-            content = content[:-3]
-        
-        content = content.strip()
-        
+
+        content = response.choices[0].message.content
         return json.loads(content)
-    
-    def _default_analysis(self, message: str, categories: List[Dict]) -> Dict:
-        """
-        Analyse par défaut si IA échoue
-        """
-        # Heuristiques simples
-        message_lower = message.lower()
-        
-        keywords_mapping = {
-            "mot de passe": ("acc-pwd", "high"),
-            "password": ("acc-pwd", "high"),
-            "wifi": ("net-wif", "medium"),
-            "internet": ("net-wif", "medium"),
-            "lent": ("pc-slow", "medium"),
-            "imprimante": ("mat-prn", "low"),
-        }
-        
-        detected_category = categories[0]["id"]
-        detected_priority = "medium"
-        
-        for keyword, (cat_abbr, priority) in keywords_mapping.items():
-            if keyword in message_lower:
-                for cat in categories:
-                    if cat["abbreviation"].startswith(cat_abbr):
-                        detected_category = cat["id"]
-                        detected_priority = priority
-                        break
-                break
-        
-        title = message[:80] if len(message) <= 80 else message[:77] + "..."
-        
-        category_name = next(
-            (cat["name"] for cat in categories if cat["id"] == detected_category),
-            "Unknown"
-        )
-        
-        return {
-            "suggested_category_id": detected_category,
-            "suggested_category_name": category_name,
-            "confidence_score": 0.50,
-            "extracted_title": title,
-            "extracted_symptoms": [message[:200]],
-            "suggested_priority": detected_priority,
-            "extracted_info": {},
-            "missing_info": ["Informations insuffisantes pour analyse détaillée"],
-            "clarification_question": "Pouvez-vous préciser la nature exacte du problème ?"
-        }
 
 
-# Instance globale
+# INSTANCE GLOBALE
 ai_analyzer = AIAnalyzer()
