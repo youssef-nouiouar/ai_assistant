@@ -215,52 +215,212 @@ CREATE TRIGGER set_ticket_number
 -- ============================================================================
 
 -- Catégories (à adapter selon votre configuration GLPI)
-INSERT INTO categories (name, abbreviation, level, parent_id, glpi_category_id, description) VALUES
--- Niveau 1 (Parents)
-('Accès et Authentification', '01-access', 1, NULL, NULL, 'Problèmes accès et authentification'),
-('Messagerie', '02-email', 1, NULL, NULL, 'Problèmes emails et messagerie'),
-('Réseau', '03-network', 1, NULL, NULL, 'Problèmes réseau et connexion'),
-('Matériel', '04-hardware', 1, NULL, NULL, 'Problèmes matériels'),
-('Logiciels', '05-software', 1, NULL, NULL, 'Problèmes logiciels'),
-('Téléphonie', '06-phone', 1, NULL, NULL, 'Problèmes téléphonie'),
-('Fichiers et Partages', '07-files', 1, NULL, NULL, 'Problèmes fichiers et partages'),
-('Sécurité', '08-security', 1, NULL, NULL, 'Problèmes sécurité'),
-('Non catégorisé', '99-non-cat', 1, NULL, NULL, 'Tickets nécessitant clarification');
+INSERT INTO categories (id, name, abbreviation, level, parent_id, glpi_category_id, description, is_active)
+VALUES
+-- 01 - Accès & Authentification
+(1, '01-Acces-Authentification', 'ACC-AUTH', 1, NULL, 1, 
+ 'Problèmes liés aux accès, mots de passe et authentification', TRUE),
 
--- Niveau 2 (Sous-catégories) - Exemples
-INSERT INTO categories (name, abbreviation, level, parent_id, glpi_category_id, description) VALUES
-('Mot de passe oublié', '01-01-pwd', 2, 1, NULL, 'Réinitialisation mot de passe'),
-('Compte bloqué', '01-02-locked', 2, 1, NULL, 'Compte utilisateur bloqué'),
-('Accès VPN', '01-03-vpn', 2, 1, NULL, 'Problèmes accès VPN'),
+-- 02 - Messagerie
+(2, '02-Messagerie', 'MSG', 1, NULL, 2, 
+ 'Problèmes liés à la messagerie et emails', TRUE),
 
-('Emails non reçus', '02-01-receive', 2, 2, NULL, 'Problème réception emails'),
-('Emails non envoyés', '02-02-send', 2, 2, NULL, 'Problème envoi emails'),
-('Boîte pleine', '02-03-full', 2, 2, NULL, 'Boîte aux lettres pleine'),
+-- 03 - Réseau & Internet
+(3, '03-Reseau-Internet', 'NET', 1, NULL, 3, 
+ 'Problèmes de connexion réseau et internet', TRUE),
 
-('Pas de connexion WiFi', '03-01-wifi', 2, 3, NULL, 'Problème connexion WiFi'),
-('Internet lent', '03-02-slow', 2, 3, NULL, 'Connexion Internet lente'),
-('Pas accès Internet', '03-03-no-internet', 2, 3, NULL, 'Pas d''accès Internet'),
+-- 04 - Postes de travail
+(4, '04-Postes-travail', 'PC', 1, NULL, 4, 
+ 'Problèmes liés aux postes de travail et ordinateurs', TRUE),
 
-('PC ne démarre pas', '04-01-no-boot', 2, 4, NULL, 'Ordinateur ne démarre pas'),
-('PC très lent', '04-02-slow', 2, 4, NULL, 'Ordinateur très lent'),
-('Écran ne fonctionne pas', '04-03-screen', 2, 4, NULL, 'Problème écran'),
-('Imprimante ne fonctionne pas', '04-04-printer', 2, 4, NULL, 'Problème imprimante'),
+-- 05 - Applications
+(5, '05-Applications', 'APP', 1, NULL, 5, 
+ 'Problèmes liés aux applications métier et logiciels', TRUE),
 
-('Logiciel ne démarre pas', '05-01-no-start', 2, 5, NULL, 'Application ne démarre pas'),
-('Logiciel plante', '05-02-crash', 2, 5, NULL, 'Application plante'),
-('Logiciel manquant', '05-03-missing', 2, 5, NULL, 'Besoin installation logiciel'),
+-- 06 - Téléphonie
+(6, '06-Telephonie', 'TEL', 1, NULL, 6, 
+ 'Problèmes liés à la téléphonie et communications', TRUE),
 
-('Téléphone ne fonctionne pas', '06-01-no-phone', 2, 6, NULL, 'Téléphone ne fonctionne pas'),
-('Qualité audio mauvaise', '06-02-audio', 2, 6, NULL, 'Problème qualité audio'),
-('Casque ne fonctionne pas', '06-03-headset', 2, 6, NULL, 'Problème casque'),
+-- 07 - Fichiers & Partages
+(7, '07-Fichiers-Partages', 'FILE', 1, NULL, 7, 
+ 'Problèmes d''accès aux fichiers et dossiers partagés', TRUE),
 
-('Accès refusé dossiers', '07-01-access', 2, 7, NULL, 'Accès refusé aux dossiers'),
-('Partage non accessible', '07-02-share', 2, 7, NULL, 'Partage réseau inaccessible'),
-('OneDrive/SharePoint', '07-03-onedrive', 2, 7, NULL, 'Problème OneDrive/SharePoint'),
+-- 08 - Matériel
+(8, '08-Materiel', 'HW', 1, NULL, 8, 
+ 'Problèmes liés au matériel informatique', TRUE),
 
-('Antivirus bloquant', '08-01-antivirus', 2, 8, NULL, 'Antivirus bloque légitimement'),
-('Email suspect', '08-02-email', 2, 8, NULL, 'Email suspect détecté'),
-('Lien suspect', '08-03-link', 2, 8, NULL, 'Lien suspect détecté');
+-- 09 - Sécurité
+(9, '09-Securite', 'SEC', 1, NULL, 9, 
+ 'Problèmes de sécurité informatique', TRUE);
+
+
+-- ============================================================================
+-- SOUS-CATÉGORIES (Level 2)
+-- ============================================================================
+
+INSERT INTO categories (id, name, abbreviation, level, parent_id, glpi_category_id, description, is_active)
+VALUES
+
+-- ============================================================================
+-- 01 - ACCÈS & AUTHENTIFICATION (Parent ID: 1)
+-- ============================================================================
+(10, 'Mot-de-passe', 'ACC-PWD', 2, 1, 10, 
+ 'Réinitialisation, expiration, complexité mot de passe', TRUE),
+
+(11, 'Compte-utilisateur', 'ACC-USER', 2, 1, 11, 
+ 'Création, modification, désactivation de compte', TRUE),
+
+(12, 'Permissions', 'ACC-PERM', 2, 1, 12, 
+ 'Droits d''accès, autorisations, groupes', TRUE),
+
+(13, 'Autres-Acces', 'ACC-OTHER', 2, 1, 13, 
+ 'Autres problèmes d''accès et authentification', TRUE),
+
+-- ============================================================================
+-- 02 - MESSAGERIE (Parent ID: 2)
+-- ============================================================================
+(20, 'Outlook', 'MSG-OUTLOOK', 2, 2, 20, 
+ 'Problèmes avec le client Outlook', TRUE),
+
+(21, 'Email-bloque', 'MSG-BLOCK', 2, 2, 21, 
+ 'Emails bloqués, non reçus, non envoyés', TRUE),
+
+(22, 'Configuration', 'MSG-CONFIG', 2, 2, 22, 
+ 'Configuration compte email, signature, règles', TRUE),
+
+(23, 'Autres-Messagerie', 'MSG-OTHER', 2, 2, 23, 
+ 'Autres problèmes de messagerie', TRUE),
+
+-- ============================================================================
+-- 03 - RÉSEAU & INTERNET (Parent ID: 3)
+-- ============================================================================
+(30, 'Wifi', 'NET-WIFI', 2, 3, 30, 
+ 'Problèmes de connexion WiFi', TRUE),
+
+(31, 'Cable-Ethernet', 'NET-ETH', 2, 3, 31, 
+ 'Problèmes de connexion filaire Ethernet', TRUE),
+
+(32, 'VPN', 'NET-VPN', 2, 3, 32, 
+ 'Problèmes de connexion VPN', TRUE),
+
+(33, 'Pas-de-connexion', 'NET-NOCON', 2, 3, 33, 
+ 'Pas de connexion internet ou réseau', TRUE),
+
+(34, 'Autres-Reseau', 'NET-OTHER', 2, 3, 34, 
+ 'Autres problèmes réseau', TRUE),
+
+-- ============================================================================
+-- 04 - POSTES DE TRAVAIL (Parent ID: 4)
+-- ============================================================================
+(40, 'PC-lent', 'PC-SLOW', 2, 4, 40, 
+ 'Ordinateur lent, performance dégradée', TRUE),
+
+(41, 'PC-bloque', 'PC-FREEZE', 2, 4, 41, 
+ 'Ordinateur bloqué, gelé, écran figé', TRUE),
+
+(42, 'Mise-a-jour-Windows', 'PC-UPDATE', 2, 4, 42, 
+ 'Problèmes de mise à jour Windows', TRUE),
+
+(43, 'Redemarrage', 'PC-BOOT', 2, 4, 43, 
+ 'Problèmes de démarrage ou redémarrage', TRUE),
+
+(44, 'Autres-PC', 'PC-OTHER', 2, 4, 44, 
+ 'Autres problèmes de poste de travail', TRUE),
+
+-- ============================================================================
+-- 05 - APPLICATIONS (Parent ID: 5)
+-- ============================================================================
+(50, 'Julius', 'APP-JULIUS', 2, 5, 50, 
+ 'Problèmes avec l''application Julius', TRUE),
+
+(51, 'SAP', 'APP-SAP', 2, 5, 51, 
+ 'Problèmes avec SAP', TRUE),
+
+(52, 'Microsoft-365', 'APP-M365', 2, 5, 52, 
+ 'Problèmes avec Microsoft 365 (Word, Excel, Teams...)', TRUE),
+
+(53, 'Navigateur', 'APP-BROWSER', 2, 5, 53, 
+ 'Problèmes avec les navigateurs web', TRUE),
+
+(54, 'Bug-fonctionnel', 'APP-BUG', 2, 5, 54, 
+ 'Bugs et dysfonctionnements applicatifs', TRUE),
+
+(55, 'Autres-Applications', 'APP-OTHER', 2, 5, 55, 
+ 'Autres problèmes applicatifs', TRUE),
+
+-- ============================================================================
+-- 06 - TÉLÉPHONIE (Parent ID: 6)
+-- ============================================================================
+(60, 'Soft-phone', 'TEL-SOFT', 2, 6, 60, 
+ 'Problèmes avec le softphone', TRUE),
+
+(61, 'Casque', 'TEL-HEADSET', 2, 6, 61, 
+ 'Problèmes avec le casque téléphonique', TRUE),
+
+(62, 'Qualite-audio', 'TEL-AUDIO', 2, 6, 62, 
+ 'Problèmes de qualité audio', TRUE),
+
+(63, 'Appels', 'TEL-CALLS', 2, 6, 63, 
+ 'Problèmes pour passer ou recevoir des appels', TRUE),
+
+(64, 'Autres-Telephonie', 'TEL-OTHER', 2, 6, 64, 
+ 'Autres problèmes de téléphonie', TRUE),
+
+-- ============================================================================
+-- 07 - FICHIERS & PARTAGES (Parent ID: 7)
+-- ============================================================================
+(70, 'Acces-refuse', 'FILE-DENIED', 2, 7, 70, 
+ 'Accès refusé aux fichiers ou dossiers', TRUE),
+
+(71, 'Dossiers-reseau', 'FILE-NETWORK', 2, 7, 71, 
+ 'Problèmes avec les dossiers réseau partagés', TRUE),
+
+(72, 'OneDrive-SharePoint', 'FILE-CLOUD', 2, 7, 72, 
+ 'Problèmes avec OneDrive ou SharePoint', TRUE),
+
+(73, 'Autres-Fichiers', 'FILE-OTHER', 2, 7, 73, 
+ 'Autres problèmes de fichiers et partages', TRUE),
+
+-- ============================================================================
+-- 08 - MATÉRIEL (Parent ID: 8)
+-- ============================================================================
+(80, 'Imprimante', 'HW-PRINTER', 2, 8, 80, 
+ 'Problèmes d''imprimante', TRUE),
+
+(81, 'Ecran', 'HW-SCREEN', 2, 8, 81, 
+ 'Problèmes d''écran ou moniteur', TRUE),
+
+(82, 'Clavier-Souris', 'HW-INPUT', 2, 8, 82, 
+ 'Problèmes de clavier ou souris', TRUE),
+
+(83, 'Autres-Materiel', 'HW-OTHER', 2, 8, 83, 
+ 'Autres problèmes matériels', TRUE),
+
+-- ============================================================================
+-- 09 - SÉCURITÉ (Parent ID: 9)
+-- ============================================================================
+(90, 'Antivirus', 'SEC-AV', 2, 9, 90, 
+ 'Problèmes d''antivirus ou malware détecté', TRUE),
+
+(91, 'Email-suspect', 'SEC-EMAIL', 2, 9, 91, 
+ 'Email suspect ou tentative de phishing', TRUE),
+
+(92, 'Lien-suspect', 'SEC-LINK', 2, 9, 92, 
+ 'Lien ou site web suspect', TRUE),
+
+(93, 'Phishing', 'SEC-PHISH', 2, 9, 93, 
+ 'Tentative de phishing confirmée', TRUE),
+
+(94, 'Autres-Securite', 'SEC-OTHER', 2, 9, 94, 
+ 'Autres problèmes de sécurité', TRUE);
+
+
+-- ============================================================================
+-- MISE À JOUR DE LA SÉQUENCE AUTO-INCREMENT
+-- (Important: définir la prochaine valeur après le plus grand ID utilisé)
+-- ============================================================================
+SELECT setval('categories_id_seq', (SELECT MAX(id) FROM categories));
+
 
 COMMENT ON TABLE categories IS 'Catégories tickets avec mapping GLPI';
 COMMENT ON TABLE users IS 'Utilisateurs (cache local GLPI)';

@@ -33,12 +33,14 @@ export interface TicketCreatedResponse {
   type: string;
   ticket_id: number;
   ticket_number: string;
+  glpi_ticket_id?: number;
   title: string;
   status: string;
   priority: string;
   category_name: string;
   created_at: string;
   ready_for_L1: boolean;
+  synced_to_glpi?: boolean;
   message: string;
 }
 

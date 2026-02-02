@@ -7,173 +7,155 @@
 -- SEED : Categories (9 catégories principales + sous-catégories)
 -- ============================================================================
 
--- Catégorie 1 : Accès & Authentification
-INSERT INTO categories (name, abbreviation, level, description) VALUES
-('Accès & Authentification', 'acc', 1, 'Problèmes d''accès, mots de passe, comptes utilisateurs');
+-- ============================
+-- 01 - Acces & Authentification
+-- ============================
+INSERT INTO categories (name, level) VALUES ('01-Acces-Authentification', 1);
+WITH parent AS (
+    SELECT id FROM categories WHERE name = '01-Acces-Authentification'
+)
+INSERT INTO categories (name, parent_id, level)
+SELECT name, (SELECT id FROM parent), 2 FROM (VALUES
+    ('Mot-de-passe'),
+    ('Compte-utilisateur'),
+    ('Permissions'),
+    ('_AUTRES')
+) AS v(name);
 
-INSERT INTO categories (name, abbreviation, parent_id, level, description)
-SELECT 'Mot de passe', 'acc-pwd', id, 2, 'Oubli, réinitialisation, expiration mot de passe'
-FROM categories WHERE abbreviation = 'acc';
 
-INSERT INTO categories (name, abbreviation, parent_id, level, description)
-SELECT 'Compte utilisateur', 'acc-usr', id, 2, 'Création, désactivation, modification compte'
-FROM categories WHERE abbreviation = 'acc';
+-- ============================
+-- 02 - Messagerie
+-- ============================
+INSERT INTO categories (name, level) VALUES ('02-Messagerie', 1);
+WITH parent AS (
+    SELECT id FROM categories WHERE name = '02-Messagerie'
+)
+INSERT INTO categories (name, parent_id, level)
+SELECT name, (SELECT id FROM parent), 2 FROM (VALUES
+    ('Outlook'),
+    ('Email-bloque'),
+    ('Configuration'),
+    ('_AUTRES')
+) AS v(name);
 
-INSERT INTO categories (name, abbreviation, parent_id, level, description)
-SELECT 'Permissions', 'acc-prm', id, 2, 'Droits d''accès, autorisations'
-FROM categories WHERE abbreviation = 'acc';
 
--- Catégorie 2 : Messagerie
-INSERT INTO categories (name, abbreviation, level, description) VALUES
-('Messagerie', 'msg', 1, 'Problèmes d''emails, Outlook, configuration messagerie');
+-- ============================
+-- 03 - Reseau & Internet
+-- ============================
+INSERT INTO categories (name, level) VALUES ('03-Reseau-Internet', 1);
+WITH parent AS (
+    SELECT id FROM categories WHERE name = '03-Reseau-Internet'
+)
+INSERT INTO categories (name, parent_id, level)
+SELECT name, (SELECT id FROM parent), 2 FROM (VALUES
+    ('Wifi'),
+    ('Cable-Ethernet'),
+    ('VPN'),
+    ('Pas-de-connexion'),
+    ('_AUTRES')
+) AS v(name);
 
-INSERT INTO categories (name, abbreviation, parent_id, level, description)
-SELECT 'Outlook', 'msg-out', id, 2, 'Problèmes spécifiques Outlook'
-FROM categories WHERE abbreviation = 'msg';
 
-INSERT INTO categories (name, abbreviation, parent_id, level, description)
-SELECT 'Email bloqué', 'msg-blk', id, 2, 'Emails bloqués par antivirus/spam'
-FROM categories WHERE abbreviation = 'msg';
+-- ============================
+-- 04 - Postes-travail
+-- ============================
+INSERT INTO categories (name, level) VALUES ('04-Postes-travail', 1);
+WITH parent AS (
+    SELECT id FROM categories WHERE name = '04-Postes-travail'
+)
+INSERT INTO categories (name, parent_id, level)
+SELECT name, (SELECT id FROM parent), 2 FROM (VALUES
+    ('PC-lent'),
+    ('PC-bloque'),
+    ('Mise-a-jour-Windows'),
+    ('Redemarrage'),
+    ('_AUTRES')
+) AS v(name);
 
-INSERT INTO categories (name, abbreviation, parent_id, level, description)
-SELECT 'Configuration', 'msg-cfg', id, 2, 'Configuration compte email'
-FROM categories WHERE abbreviation = 'msg';
 
--- Catégorie 3 : Réseau & Internet
-INSERT INTO categories (name, abbreviation, level, description) VALUES
-('Réseau & Internet', 'net', 1, 'Problèmes de connexion réseau, Internet, VPN');
+-- ============================
+-- 05 - Applications
+-- ============================
+INSERT INTO categories (name, level) VALUES ('05-Applications', 1);
+WITH parent AS (
+    SELECT id FROM categories WHERE name = '05-Applications'
+)
+INSERT INTO categories (name, parent_id, level)
+SELECT name, (SELECT id FROM parent), 2 FROM (VALUES
+    ('Julius'),
+    ('SAP'),
+    ('Microsoft-365'),
+    ('Navigateur'),
+    ('Bug-fonctionnel'),
+    ('_AUTRES')
+) AS v(name);
 
-INSERT INTO categories (name, abbreviation, parent_id, level, description)
-SELECT 'WiFi', 'net-wif', id, 2, 'Problèmes connexion WiFi'
-FROM categories WHERE abbreviation = 'net';
 
-INSERT INTO categories (name, abbreviation, parent_id, level, description)
-SELECT 'Pas de connexion', 'net-no', id, 2, 'Aucune connexion Internet'
-FROM categories WHERE abbreviation = 'net';
+-- ============================
+-- 06 - Telephonie
+-- ============================
+INSERT INTO categories (name, level) VALUES ('06-Telephonie', 1);
+WITH parent AS (
+    SELECT id FROM categories WHERE name = '06-Telephonie'
+)
+INSERT INTO categories (name, parent_id, level)
+SELECT name, (SELECT id FROM parent), 2 FROM (VALUES
+    ('Soft-phone'),
+    ('Casque'),
+    ('Qualite-audio'),
+    ('Appels'),
+    ('_AUTRES')
+) AS v(name);
 
-INSERT INTO categories (name, abbreviation, parent_id, level, description)
-SELECT 'VPN', 'net-vpn', id, 2, 'Problèmes VPN'
-FROM categories WHERE abbreviation = 'net';
 
-INSERT INTO categories (name, abbreviation, parent_id, level, description)
-SELECT 'Câble Ethernet', 'net-eth', id, 2, 'Problèmes connexion filaire'
-FROM categories WHERE abbreviation = 'net';
+-- ============================
+-- 07 - Fichiers-Partages
+-- ============================
+INSERT INTO categories (name, level) VALUES ('07-Fichiers-Partages', 1);
+WITH parent AS (
+    SELECT id FROM categories WHERE name = '07-Fichiers-Partages'
+)
+INSERT INTO categories (name, parent_id, level)
+SELECT name, (SELECT id FROM parent), 2 FROM (VALUES
+    ('Acces-refuse'),
+    ('Dossiers-reseau'),
+    ('OneDrive-SharePoint'),
+    ('_AUTRES')
+) AS v(name);
 
--- Catégorie 4 : Postes de travail
-INSERT INTO categories (name, abbreviation, level, description) VALUES
-('Postes de travail', 'pc', 1, 'Problèmes PC, Windows, performances système');
 
-INSERT INTO categories (name, abbreviation, parent_id, level, description)
-SELECT 'PC lent', 'pc-slow', id, 2, 'Ordinateur lent, performances dégradées'
-FROM categories WHERE abbreviation = 'pc';
+-- ============================
+-- 08 - Materiel
+-- ============================
+INSERT INTO categories (name, level) VALUES ('08-Materiel', 1);
+WITH parent AS (
+    SELECT id FROM categories WHERE name = '08-Materiel'
+)
+INSERT INTO categories (name, parent_id, level)
+SELECT name, (SELECT id FROM parent), 2 FROM (VALUES
+    ('Imprimante'),
+    ('Ecran'),
+    ('Clavier-Souris'),
+    ('_AUTRES')
+) AS v(name);
 
-INSERT INTO categories (name, abbreviation, parent_id, level, description)
-SELECT 'PC bloqué', 'pc-frz', id, 2, 'Ordinateur gelé, ne répond plus'
-FROM categories WHERE abbreviation = 'pc';
 
-INSERT INTO categories (name, abbreviation, parent_id, level, description)
-SELECT 'Mise à jour Windows', 'pc-upd', id, 2, 'Problèmes mises à jour Windows'
-FROM categories WHERE abbreviation = 'pc';
+-- ============================
+-- 09 - Securite
+-- ============================
+INSERT INTO categories (name, level) VALUES ('09-Securite', 1);
+WITH parent AS (
+    SELECT id FROM categories WHERE name = '09-Securite'
+)
+INSERT INTO categories (name, parent_id, level)
+SELECT name, (SELECT id FROM parent), 2 FROM (VALUES
+    ('Antivirus'),
+    ('Email-suspect'),
+    ('Lien-suspect'),
+    ('Phishing'),
+    ('_AUTRES')
+) AS v(name);
 
-INSERT INTO categories (name, abbreviation, parent_id, level, description)
-SELECT 'Redémarrage', 'pc-rst', id, 2, 'Problèmes de démarrage/redémarrage'
-FROM categories WHERE abbreviation = 'pc';
-
--- Catégorie 5 : Applications
-INSERT INTO categories (name, abbreviation, level, description) VALUES
-('Applications', 'app', 1, 'Problèmes applications métier, logiciels');
-
-INSERT INTO categories (name, abbreviation, parent_id, level, description)
-SELECT 'Julius', 'app-jul', id, 2, 'Application Julius'
-FROM categories WHERE abbreviation = 'app';
-
-INSERT INTO categories (name, abbreviation, parent_id, level, description)
-SELECT 'SAP', 'app-sap', id, 2, 'Application SAP'
-FROM categories WHERE abbreviation = 'app';
-
-INSERT INTO categories (name, abbreviation, parent_id, level, description)
-SELECT 'Microsoft 365', 'app-m365', id, 2, 'Suite Microsoft 365'
-FROM categories WHERE abbreviation = 'app';
-
-INSERT INTO categories (name, abbreviation, parent_id, level, description)
-SELECT 'Navigateur', 'app-brw', id, 2, 'Chrome, Edge, Firefox'
-FROM categories WHERE abbreviation = 'app';
-
-INSERT INTO categories (name, abbreviation, parent_id, level, description)
-SELECT 'Bug fonctionnel', 'app-bug', id, 2, 'Bug dans une application'
-FROM categories WHERE abbreviation = 'app';
-
--- Catégorie 6 : Téléphonie
-INSERT INTO categories (name, abbreviation, level, description) VALUES
-('Téléphonie', 'tel', 1, 'Problèmes téléphonie, soft-phone, casques audio');
-
-INSERT INTO categories (name, abbreviation, parent_id, level, description)
-SELECT 'Soft-phone', 'tel-sft', id, 2, 'Application téléphonie logicielle'
-FROM categories WHERE abbreviation = 'tel';
-
-INSERT INTO categories (name, abbreviation, parent_id, level, description)
-SELECT 'Casque', 'tel-hst', id, 2, 'Problèmes casque audio'
-FROM categories WHERE abbreviation = 'tel';
-
-INSERT INTO categories (name, abbreviation, parent_id, level, description)
-SELECT 'Qualité audio', 'tel-aud', id, 2, 'Mauvaise qualité audio'
-FROM categories WHERE abbreviation = 'tel';
-
-INSERT INTO categories (name, abbreviation, parent_id, level, description)
-SELECT 'Appels', 'tel-cal', id, 2, 'Problèmes passage/réception appels'
-FROM categories WHERE abbreviation = 'tel';
-
--- Catégorie 7 : Fichiers & Partages
-INSERT INTO categories (name, abbreviation, level, description) VALUES
-('Fichiers & Partages', 'file', 1, 'Problèmes dossiers partagés, OneDrive, accès fichiers');
-
-INSERT INTO categories (name, abbreviation, parent_id, level, description)
-SELECT 'Accès refusé', 'file-acc', id, 2, 'Accès refusé à un fichier/dossier'
-FROM categories WHERE abbreviation = 'file';
-
-INSERT INTO categories (name, abbreviation, parent_id, level, description)
-SELECT 'Dossiers réseau', 'file-net', id, 2, 'Problèmes lecteurs réseau'
-FROM categories WHERE abbreviation = 'file';
-
-INSERT INTO categories (name, abbreviation, parent_id, level, description)
-SELECT 'OneDrive/SharePoint', 'file-od', id, 2, 'Problèmes synchronisation cloud'
-FROM categories WHERE abbreviation = 'file';
-
--- Catégorie 8 : Matériel
-INSERT INTO categories (name, abbreviation, level, description) VALUES
-('Matériel', 'mat', 1, 'Problèmes matériel : imprimantes, écrans, périphériques');
-
-INSERT INTO categories (name, abbreviation, parent_id, level, description)
-SELECT 'Imprimante', 'mat-prn', id, 2, 'Problèmes imprimantes'
-FROM categories WHERE abbreviation = 'mat';
-
-INSERT INTO categories (name, abbreviation, parent_id, level, description)
-SELECT 'Écran', 'mat-scr', id, 2, 'Problèmes écrans, affichage'
-FROM categories WHERE abbreviation = 'mat';
-
-INSERT INTO categories (name, abbreviation, parent_id, level, description)
-SELECT 'Clavier/Souris', 'mat-kbd', id, 2, 'Problèmes clavier ou souris'
-FROM categories WHERE abbreviation = 'mat';
-
--- Catégorie 9 : Sécurité
-INSERT INTO categories (name, abbreviation, level, description) VALUES
-('Sécurité', 'sec', 1, 'Problèmes sécurité : antivirus, phishing, malware');
-
-INSERT INTO categories (name, abbreviation, parent_id, level, description)
-SELECT 'Antivirus', 'sec-av', id, 2, 'Problèmes antivirus'
-FROM categories WHERE abbreviation = 'sec';
-
-INSERT INTO categories (name, abbreviation, parent_id, level, description)
-SELECT 'Email suspect', 'sec-eml', id, 2, 'Email suspect, phishing'
-FROM categories WHERE abbreviation = 'sec';
-
-INSERT INTO categories (name, abbreviation, parent_id, level, description)
-SELECT 'Lien suspect', 'sec-lnk', id, 2, 'Lien suspect cliqué'
-FROM categories WHERE abbreviation = 'sec';
-
-INSERT INTO categories (name, abbreviation, parent_id, level, description)
-SELECT 'Phishing', 'sec-psh', id, 2, 'Tentative de phishing'
-FROM categories WHERE abbreviation = 'sec';
 
 -- ============================================================================
 -- SEED : Technicians (Données de test)

@@ -1,0 +1,16 @@
+# Ignore environment files containing secrets
+backend/.env
+*.env
+
+# Node
+frontend/node_modules/
+
+# Python
+__pycache__/
+*.pyc
+
+# Jupyter
+.ipynb_checkpoints
+
+# OS
+.DS_Store
