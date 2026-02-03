@@ -46,11 +46,12 @@ export const useTicketWorkflow = () => {
         setCurrentAction(response.action);
         setCurrentSummary(response.summary);
 
+        const clarificationQuestion = response.summary?.clarification_question;
         addMessage('bot', response.message, {
           sessionId: response.session_id,
           action: response.action,
           summary: response.summary,
-          clarificationQuestions: response.clarification_questions,
+          clarificationQuestion: clarificationQuestion,
           attempts: response.clarification_attempts,
         });
 
@@ -156,11 +157,12 @@ export const useTicketWorkflow = () => {
         setCurrentAction(response.action);
         setCurrentSummary(response.summary);
 
+        const clarificationQuestion = response.summary?.clarification_question;
         addMessage('bot', response.message, {
           sessionId: response.session_id,
           action: response.action,
           summary: response.summary,
-          clarificationQuestions: response.clarification_questions,
+          clarificationQuestion: clarificationQuestion,
           attempts: response.clarification_attempts,
         });
 

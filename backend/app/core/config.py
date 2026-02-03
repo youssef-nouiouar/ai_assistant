@@ -1,42 +1,71 @@
-from pydantic_settings import BaseSettings
+# ============================================================================
+# FICHIER : backend/app/config.py
+# DESCRIPTION : Configuration centrale de l'application
+# ============================================================================
 
+from pydantic_settings import BaseSettings
+from typing import List
+import os
 
 class Settings(BaseSettings):
-    # Database
-    DATABASE_URL: str = "postgresql://it_admin:secure_password_123@localhost:5432/ai_it_assistant"
+    """
+    Configuration de l'application
+    Lit les variables d'environnement depuis .env
+    """
     
-    # OpenAI
-    OPENAI_API_KEY: str
-    OPENAI_MODEL: str = "gpt-4o-mini"
-    OPENROUTER_API_KEY="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"
-    
-    # GLPI
-    GLPI_ENABLED: bool = True
-    GLPI_API_URL: str
-    GLPI_APP_TOKEN: str
-    GLPI_USER_TOKEN: str
-    GLPI_SYNC_MODE: str = "dual"
-    GLPI_WEBHOOK_SECRET: str = "my_secret_key_2026" #is the the truth secret 😅
-
     # Application
     APP_NAME: str = "AI IT Assistant"
-    DEBUG: bool = False
-    CORS_ORIGINS: str = "http://localhost:5173"
+    APP_VERSION: str = "1.0.0"
+    ENVIRONMENT: str = "development"
+    DEBUG: bool = True
+    
+    # Base de données PostgreSQL
+    DATABASE_URL: str
+    
+    # ChromaDB
+    CHROMADB_PATH: str = "./chromadb_data"
+    
+    # IA
+    OPENAI_API_KEY: str = ""
+    USE_OLLAMA: bool = False
+    OLLAMA_BASE_URL: str = "http://localhost:11434"
+    OLLAMA_MODEL: str = "llama2"
+    
+    # openroutines
+    OPENROUTER_API_KEY: str = "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"
 
-    # 👉 VARIABLES .env SUPPLÉMENTAIRES (qui causaient l’erreur)
-    CHROMADB_PATH: str | None = None
-    USE_OLLAMA: bool | None = None
-    OLLAMA_BASE_URL: str | None = None
-    OLLAMA_MODEL: str | None = None
+    # Sécurité
+    SECRET_KEY: str
+    ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    
+    # CORS
+    CORS_ORIGINS: List[str] = ["http://localhost:5173", "http://localhost:3000"]
+    
+    # Logging
+    LOG_LEVEL: str = "INFO"
 
-    SECRET_KEY: str | None = None
-    ENVIRONMENT: str | None = None
-    LOG_LEVEL: str | None = None
+    # ========================================================================
+    # GLPI CONFIGURATION
+    # ========================================================================
+
+    GLPI_ENABLED: bool = True  # Activer/désactiver l'intégration GLPI
+    GLPI_API_URL: str = "http://localhost/glpi/apirest.php"
+    GLPI_APP_TOKEN: str = "uc00DWibqqnnfKd4mzJ5enb2dy9OlP9g6Xk7i0TG"  # À définir dans .env
+    GLPI_USER_TOKEN: str = "lKoBkb0nVBfN78FzxcbKemYKIUQKPHDoBEmhRqmB"  # À définir dans .env
+
+    # Mode de synchronisation
+    # "glpi_only": Créer uniquement dans GLPI
+    # "dual": Créer dans notre DB + GLPI
+    GLPI_SYNC_MODE: str = "dual"
+
+    # Webhook secret pour la vérification des signatures
+    GLPI_WEBHOOK_SECRET: str = ""  # Générer avec: openssl rand -hex 32
 
     class Config:
         env_file = ".env"
+        env_file_encoding = "utf-8"
         case_sensitive = True
-        extra = "allow"   # IMPORTANT
 
-
+# Instance globale des settings
 settings = Settings()

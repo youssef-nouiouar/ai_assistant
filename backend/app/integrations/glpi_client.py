@@ -8,7 +8,7 @@ from typing import Dict, Optional, List
 from datetime import datetime, timedelta
 import json
 
-from app.config import settings
+from app.core.config import settings
 from app.core.logger import structured_logger
 from app.integrations.glpi_mapping import GLPIMapping
 

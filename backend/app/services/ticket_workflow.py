@@ -26,7 +26,6 @@ from app.core.config import settings
 from app.core.constants import (
     ConfidenceThresholds,
     Messages,
-    ClarificationQuestions,
     ModifiableFields,
     SESSION_EXPIRATION_MINUTES,
     MAX_CLARIFICATION_ATTEMPTS
@@ -75,7 +74,6 @@ class TicketWorkflow:
             ).first()
             if parent:
                 attempts = parent.clarification_attempts + 1
-        print(f"\nAnalyse du message, tentative n°{attempts + 1}")
         # Vérifier limite de tentatives
         if attempts >= MAX_CLARIFICATION_ATTEMPTS:
             return await self._handle_max_attempts_reached(
@@ -100,18 +98,24 @@ class TicketWorkflow:
             confidence = analysis.get("confidence_score", 0.0)
             print("\nRésultat de l'analyse IA :" + str(analysis))
             # CORRECTION : Gérer le cas "too_vague" (confiance < 30%)
-            if confidence < ConfidenceThresholds.TOO_VAGUE:
+            if confidence < ConfidenceThresholds.ASK_CLARIFICATION:
                 return await self._handle_too_vague(
                     db=db,
                     message=message,
                     user_email=user_email,
-                    attempts=attempts
+                    attempts=attempts,
+                    clarification_question=analysis.get("clarification_question"),
                 )
             
             # Déterminer l'action
             action = self._determine_action(confidence)
             
             # CORRECTION : Smart Summary peut avoir category = None
+            # Ensure missing_info is always a list (convert string to list if needed)
+            missing_info = analysis.get("missing_info", [])
+            if isinstance(missing_info, str):
+                missing_info = [missing_info] if missing_info else []
+            
             smart_summary = {
                 "category": {
                     "id": analysis.get("suggested_category_id"),
@@ -122,7 +126,8 @@ class TicketWorkflow:
                 "title": analysis.get("extracted_title"),
                 "symptoms": analysis.get("extracted_symptoms", []),
                 "extracted_info": analysis.get("extracted_info", {}),
-                "missing_info": analysis.get("missing_info", []),  # NOUVEAU
+                "missing_info": missing_info,  # NOVO: Always a list
+                "clarification_question": analysis.get("clarification_question"),  # NOUVEAU
                 "original_message": message
             }
             
@@ -131,7 +136,6 @@ class TicketWorkflow:
                 ai_summary=smart_summary,
                 original_message=message,
                 confidence_score=str(confidence),
-                # has_category=analysis.get("suggested_category_id") is not None,
                 status="pending",
                 user_email=user_email,
                 action_type=action,
@@ -159,21 +163,12 @@ class TicketWorkflow:
                 attempts=attempts
             )
             
-            # Questions de clarification ciblées
-            clarification_questions = None
-            if action == "ask_clarification":
-                clarification_questions = analysis.get("clarification_questions")
-                # clarification_questions = ClarificationQuestions.get_questions_for_missing_info(
-                #     smart_summary.get("missing_info", [])
-                # )
-            
             return {
                 "session_id": session.id,
                 "type": "smart_summary",
                 "action": action,
                 "message": message_to_user,
                 "summary": smart_summary,
-                "clarification_questions": clarification_questions,  # NOUVEAU
                 "clarification_attempts": attempts,
                 "expires_at": session.expires_at.isoformat()
             }
@@ -191,11 +186,15 @@ class TicketWorkflow:
         db: Session,
         message: str,
         user_email: Optional[str],
-        attempts: int
+        attempts: int,
+        clarification_question: Optional[str] = None,
     ) -> Dict:
         """
         Gère le cas où le message est trop vague (confidence < 30%)
+        
+        Utilise la clarification_question générée par l'IA pour un message personnalisé
         """
+        print("\n clarification_question (inside function too_vague):", clarification_question)
         session = AnalysisSession(
             ai_summary=None,  # Pas de résumé
             original_message=message,
@@ -212,17 +211,18 @@ class TicketWorkflow:
         db.commit()
         db.refresh(session)
         
+        # Générer un message personnalisé basé sur la clarification_question
+        if clarification_question:
+            message_to_user = f"😕 **J'ai besoin de plus de détails pour bien comprendre votre demande.**\n\n{clarification_question}"
+        else:
+            message_to_user = Messages.TOO_VAGUE_MESSAGE
+        
         return {
             "session_id": session.id,
             "type": "smart_summary",
             "action": "too_vague",
-            "message": Messages.TOO_VAGUE_MESSAGE,
+            "message": message_to_user,
             "summary": None,
-            "clarification_questions": [
-                "• Quel appareil ou application est concerné ?",
-                "• Quel est le problème exact ?",
-                "• Depuis quand cela se produit-il ?"
-            ],
             "clarification_attempts": attempts,
             "expires_at": session.expires_at.isoformat()
         }
@@ -485,16 +485,12 @@ class TicketWorkflow:
             )
         
         elif action == "ask_clarification":
-            # CORRECTION : Questions ciblées
-            questions = ClarificationQuestions.get_questions_for_missing_info(
-                missing_info or []
-            )
-            missing_info_list = "\n".join(questions)
+            # CORRECTION : Utiliser la question de clarification de l'analyse IA
+            clarification_question = summary.get("clarification_question", 
+                                                  "Pouvez-vous fournir plus de détails ?")
             
-            prefix = f"**Tentative {attempts + 1}/{MAX_CLARIFICATION_ATTEMPTS}**\n\n" if attempts > 0 else ""
-            
-            return prefix + Messages.ASK_CLARIFICATION_MESSAGE.format(
-                missing_info_list=missing_info_list
+            return Messages.ASK_CLARIFICATION_MESSAGE.format(
+                missing_info_list=clarification_question
             )
         
         elif action == "too_vague":

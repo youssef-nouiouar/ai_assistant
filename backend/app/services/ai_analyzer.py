@@ -2,11 +2,10 @@
 # FICHIER : backend/app/services/ai_analyzer.py (VERSION OPTIMISÉE)
 # ============================================================================
 
-from typing import Dict, List, Any
-import requests
-import openai
+from typing import Dict, List
+from openai import OpenAI
 import json
-from app.config import settings
+from app.core.config import settings
 import hashlib
 import time
 
@@ -14,15 +13,12 @@ import time
 class AIAnalyzer:
 
     def __init__(self):
-        # Support OpenRouter as alternative to OpenAI (use OPENROUTER_API_KEY env var)
-        self.use_openrouter = False
-        self.openrouter_api_key = getattr(settings, "OPENROUTER_API_KEY", "")
-        if not settings.USE_OLLAMA:
-            if self.openrouter_api_key:
-                self.use_openrouter = True
-            else:
-                openai.api_key = settings.OPENAI_API_KEY
-
+        # Initialize OpenRouter client
+        self.client = OpenAI(
+            api_key=settings.OPENROUTER_API_KEY,
+            base_url="https://openrouter.ai/api/v1"
+        )
+         
         # Cache local (optionnel)
         self.local_cache = {}
 
@@ -118,7 +114,13 @@ RÉPONSE JSON ATTENDUE :
     # ----------------------------------------------------------------------
     async def _call_openai(self, prompt: str) -> Dict:
 
-        system_message = """
+        response = self.client.chat.completions.create(
+            model="google/gemini-2.5-flash-lite-preview-09-2025",
+            response_format={"type": "json_object"},  # JSON garanti
+            messages=[
+                {
+                    "role": "system",
+                    "content": """
 Tu es un assistant IT expert. Ton rôle est d'analyser un ticket IT 
 et de renvoyer un JSON strict contenant :
 - suggested_category_id
@@ -130,74 +132,10 @@ et de renvoyer un JSON strict contenant :
 - missing_info
 - clarification_question (si confiance < 0.9)
 """
-
-        # If configured, call OpenRouter HTTP API
-        if self.use_openrouter:
-            url = "https://openrouter.ai/api/v1/chat/completions"
-            headers = {
-                "Authorization": f"Bearer {self.openrouter_api_key}",
-                "Content-Type": "application/json",
-            }
-            payload = {
-                "model": "google/gemini-2.5-flash-lite-preview-09-2025",
-                "messages": [
-                    {"role": "system", "content": system_message},
-                    {"role": "user", "content": prompt},
-                ],
-                "temperature": 0.2,
-                "response_format": {"type": "json_object"},
-            }
-
-            resp = requests.post(url, headers=headers, json=payload, timeout=30)
-            resp.raise_for_status()
-            data = resp.json()
-
-            # Extract content robustly from different response shapes
-            content = None
-            if "choices" in data and len(data["choices"]) > 0:
-                choice = data["choices"][0]
-                msg = choice.get("message") or {}
-                if isinstance(msg, dict):
-                    content = msg.get("content")
-                else:
-                    content = choice.get("content")
-
-            # Fallbacks
-            if content is None:
-                content = data.get("output") or data.get("result") or json.dumps(data)
-
-            # Normalize and parse
-            if isinstance(content, dict):
-                return content
-            if isinstance(content, list):
-                # join list parts into string if necessary
-                try:
-                    joined = "".join([part.get("text") if isinstance(part, dict) and part.get("text") else str(part) for part in content])
-                    return json.loads(joined)
-                except Exception:
-                    return {"raw_response": content}
-            if isinstance(content, str):
-                try:
-                    return json.loads(content)
-                except Exception:
-                    import re
-                    m = re.search(r"(\{.*\})", content, re.DOTALL)
-                    if m:
-                        return json.loads(m.group(1))
-                    raise ValueError("Unable to parse model response as JSON")
-
-        # Fallback to OpenAI python client if configured
-        response = openai.chat.completions.create(
-            model="google/gemini-2.5-flash-lite-preview-09-2025",
-            response_format={"type": "json_object"},
-            messages=[
-                {
-                    "role": "system",
-                    "content": system_message
                 },
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.2
+            temperature=0.1,
         )
 
         content = response.choices[0].message.content

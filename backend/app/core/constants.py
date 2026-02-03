@@ -10,9 +10,9 @@ from typing import Dict, List
 # ========================================================================
 
 class ConfidenceThresholds:
-    AUTO_VALIDATE = 0.94  # >= 94% : Validation automatique
-    CONFIRM_SUMMARY = 0.5 # 50-94% : Demander confirmation
-    ASK_CLARIFICATION = 0.2  # 20-60% : Poser questions
+    AUTO_VALIDATE = 0.98  # >= 94% : Validation automatique
+    CONFIRM_SUMMARY = 0.7 # 50-94% : Demander confirmation
+    ASK_CLARIFICATION = 0.4  # 20-60% : Poser questions
     TOO_VAGUE = 0.00  # < 20% : Message trop vague, escalade humaine
 
 
@@ -88,10 +88,11 @@ class Messages:
         "• Depuis quand cela se produit-il ?"
     )
     
-    # Trop de tentatives
+    # Trop de tentatives (escalade humaine)
     MAX_ATTEMPTS_REACHED = (
-        "⚠️ **Nous avons du mal à comprendre votre demande.**\n\n"
-        "Je vais créer un ticket et un technicien vous contactera pour clarifier."
+        "✅ **Pas de souci !**\n\n"
+        "Je vais créer un ticket de support et un technicien vous contactera rapidement pour clarifier votre problème. "
+        "Vous recevrez une notification dès que quelqu'un sera disponible pour vous aider."
     )
     
     # Ticket créé

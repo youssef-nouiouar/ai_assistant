@@ -347,10 +347,10 @@ export const ChatbotInterface = () => {
           )}
 
           {/* Formulaire de clarification */}
-          {showClarificationForm && lastBotMessage?.data?.clarificationQuestions && (
+          {showClarificationForm && (
             <ClarificationForm
-              questions={lastBotMessage.data.clarificationQuestions}
-              attempts={lastBotMessage.data.attempts || 0}
+              clarificationQuestion={lastBotMessage?.data?.clarificationQuestion}
+              attempts={lastBotMessage?.data?.attempts || 0}
               maxAttempts={MAX_CLARIFICATION_ATTEMPTS}
               onSubmit={handleClarification}
               isLoading={isLoading}

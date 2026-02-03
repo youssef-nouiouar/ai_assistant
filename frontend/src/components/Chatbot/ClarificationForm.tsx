@@ -25,7 +25,7 @@ const SendIcon = () => (
 );
 
 interface ClarificationFormProps {
-  questions: string[];
+  clarificationQuestion?: string;
   attempts: number;
   maxAttempts: number;
   onSubmit: (response: string) => void;
@@ -33,7 +33,7 @@ interface ClarificationFormProps {
 }
 
 export const ClarificationForm: React.FC<ClarificationFormProps> = ({
-  questions,
+  clarificationQuestion,
   attempts,
   maxAttempts,
   onSubmit,
@@ -74,43 +74,24 @@ export const ClarificationForm: React.FC<ClarificationFormProps> = ({
               <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500/20 to-purple-500/20 border border-indigo-500/20">
                 <QuestionIcon />
               </div>
-              <div>
-                <h3 className="text-lg font-bold text-zinc-100">Précisions nécessaires</h3>
-                <p className="text-xs text-zinc-500">Aidez-nous à mieux comprendre votre problème</p>
+              <div className="flex-1">
+                <h3 className="text-lg font-bold text-zinc-100 leading-tight">
+                  {clarificationQuestion ? "Précisions nécessaires" : "Détails supplémentaires"}
+                </h3>
+                <p className="text-xs text-zinc-500 mt-0.5 line-clamp-2">
+                  {clarificationQuestion ? clarificationQuestion : "Aidez-nous à mieux comprendre votre problème"}
+                </p>
               </div>
             </div>
             
-            {/* Attempts badge */}
+            {/* Progress step badge */}
             <div className="flex-shrink-0">
-              <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold ${
-                remainingAttempts <= 1 
-                  ? 'bg-amber-500/15 text-amber-400' 
-                  : 'bg-indigo-500/15 text-indigo-400'
-              }`}>
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-indigo-500/15 text-indigo-400">
                 <ChatIcon />
-                Tentative {attempts + 1}/{maxAttempts}
+                Étape {attempts + 1}
               </span>
             </div>
           </div>
-
-          {/* Questions */}
-          {questions && questions.length > 0 && (
-            <div className="mb-5 p-4 rounded-lg bg-[#16161d] border border-white/5">
-              <p className="text-sm text-zinc-400 mb-3">
-                Merci de préciser les points suivants :
-              </p>
-              <ul className="space-y-2.5">
-                {questions.map((question, index) => (
-                  <li key={index} className="flex items-start gap-3 text-sm">
-                    <span className="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full bg-indigo-500/20 text-indigo-400 text-xs font-bold">
-                      {index + 1}
-                    </span>
-                    <span className="text-zinc-300 leading-relaxed pt-0.5">{question}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
 
           {/* Formulaire */}
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -162,12 +143,12 @@ export const ClarificationForm: React.FC<ClarificationFormProps> = ({
             </button>
           </form>
 
-          {/* Warning si dernière tentative */}
+          {/* Info message for final step */}
           {remainingAttempts === 0 && (
-            <div className="mt-4 flex items-start gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
-              <span className="text-amber-400 text-sm">⚠️</span>
-              <p className="text-xs text-amber-200/80">
-                C'est votre dernière tentative. Essayez de fournir un maximum de détails.
+            <div className="mt-4 flex items-start gap-2 p-3 rounded-lg bg-indigo-500/10 border border-indigo-500/20">
+              <span className="text-indigo-400 text-sm">ℹ️</span>
+              <p className="text-xs text-indigo-200/80">
+                Si ma compréhension n'est pas assez précise, un technicien vous recontactera pour clarifier votre problème.
               </p>
             </div>
           )}

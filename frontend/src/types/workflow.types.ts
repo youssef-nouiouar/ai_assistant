@@ -16,6 +16,7 @@ export interface SmartSummary {
   symptoms: string[];
   extracted_info: Record<string, any>;
   missing_info: string[];
+  clarification_question?: string;
 }
 
 export interface AnalysisResponse {
@@ -24,7 +25,6 @@ export interface AnalysisResponse {
   action: 'auto_validate' | 'confirm_summary' | 'ask_clarification' | 'too_vague';
   message: string;
   summary: SmartSummary | null;
-  clarification_questions: string[] | null;
   clarification_attempts: number;
   expires_at: string;
 }
