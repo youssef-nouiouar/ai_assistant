@@ -93,6 +93,7 @@ export const ChatbotInterface = () => {
     isLoading,
     currentAction,
     currentSummary,
+    currentGuidedChoices,
     error,
     analyzeMessage,
     autoValidate,
@@ -147,9 +148,9 @@ export const ChatbotInterface = () => {
     setShowModificationForm(false);
   };
 
-  // Gérer clarification
-  const handleClarification = async (response: string) => {
-    await clarify(response);
+  // Gérer clarification (Phase 3: passe aussi le choiceId)
+  const handleClarification = async (response: string, choiceId?: string) => {
+    await clarify(response, choiceId);
   };
 
   // Clic sur exemple rapide
@@ -297,7 +298,7 @@ export const ChatbotInterface = () => {
 
           {/* Messages */}
           {messages.map((message) => (
-            <MessageBubble key={message.id} message={message} />
+            <MessageBubble key={message.id} message={message} onExampleClick={handleQuickExample} />
           ))}
 
           {/* Loading indicator */}
@@ -354,6 +355,7 @@ export const ChatbotInterface = () => {
               maxAttempts={MAX_CLARIFICATION_ATTEMPTS}
               onSubmit={handleClarification}
               isLoading={isLoading}
+              guidedChoices={currentGuidedChoices}
             />
           )}
 

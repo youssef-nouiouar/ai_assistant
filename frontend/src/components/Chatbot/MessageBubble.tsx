@@ -4,6 +4,8 @@
 // ============================================================================
 
 import { ChatMessage } from '../../types/workflow.types';
+import { TicketSuccessCard } from './TicketSuccessCard';
+import { quickExampleTexts } from './constants';
 
 // Icons inline SVG
 const SparklesIcon = () => (
@@ -20,9 +22,10 @@ const UserIcon = () => (
 
 interface MessageBubbleProps {
   message: ChatMessage;
+  onExampleClick?: (text: string) => void;
 }
 
-export const MessageBubble: React.FC<MessageBubbleProps> = ({ message }) => {
+export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, onExampleClick }) => {
   const isUser = message.type === 'user';
   const isSystem = message.type === 'system';
 
@@ -88,7 +91,31 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message }) => {
           <div className="relative whitespace-pre-wrap text-[15px] leading-relaxed">
             {message.content}
           </div>
+
+          {/* Phase 3: Exemples cliquables apres greeting */}
+          {!isUser && message.data?.showExamples && onExampleClick && (
+            <div className="mt-3 pt-3 border-t border-white/10 grid grid-cols-2 gap-2">
+              {quickExampleTexts.map((example, index) => (
+                <button
+                  key={index}
+                  onClick={() => onExampleClick(example.text)}
+                  className="flex items-center gap-2 px-3 py-2
+                    bg-white/5 hover:bg-white/10
+                    border border-white/5 hover:border-indigo-500/30
+                    rounded-lg transition-all duration-200 text-left"
+                >
+                  <span className="text-base flex-shrink-0">{example.emoji}</span>
+                  <span className="text-xs text-zinc-400 hover:text-zinc-200">{example.text}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
+
+        {/* Phase 3: Carte de succes ticket */}
+        {!isUser && message.data?.ticket?.type === 'ticket_created' && (
+          <TicketSuccessCard ticket={message.data.ticket} />
+        )}
       </div>
     </div>
   );

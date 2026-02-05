@@ -72,12 +72,14 @@ export class TicketWorkflowAPI {
 
   static async clarify(
     sessionId: string,
-    clarificationResponse: string
+    clarificationResponse: string,
+    selectedChoiceId?: string
   ): Promise<AnalysisResponse> {
     try {
       const response = await api.post<AnalysisResponse>('/clarify', {
         session_id: sessionId,
         clarification_response: clarificationResponse,
+        selected_choice_id: selectedChoiceId,
       });
       return response.data;
     } catch (error) {

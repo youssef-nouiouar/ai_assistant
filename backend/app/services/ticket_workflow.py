@@ -8,6 +8,11 @@ from sqlalchemy.orm import Session
 from typing import Dict, List, Optional
 from datetime import datetime, timedelta, timezone
 
+# Helper pour datetime UTC cohérent
+def utc_now() -> datetime:
+    """Retourne datetime UTC-aware pour éviter les problèmes de timezone"""
+    return datetime.now(timezone.utc)
+
 
 from app.models.ticket import Ticket
 from app.models.category import Category
@@ -15,6 +20,7 @@ from app.models.user import User
 from app.models.analysis_session import AnalysisSession
 from app.services.ai_analyzer import ai_analyzer
 from app.services.intent_validator import intent_validator
+from app.services.context_detector import context_detector
 from app.core.exceptions import (
     SessionNotFoundError,
     SessionAlreadyConvertedError,
@@ -28,7 +34,9 @@ from app.core.constants import (
     Messages,
     ModifiableFields,
     SESSION_EXPIRATION_MINUTES,
-    MAX_CLARIFICATION_ATTEMPTS
+    MAX_CLARIFICATION_ATTEMPTS,
+    MessageDetection,
+    GreetingMessages
 )
 from app.core.logger import structured_logger
 
@@ -54,26 +62,66 @@ class TicketWorkflow:
         db: Session,
         message: str,
         user_email: Optional[str] = None,
-        parent_session_id: Optional[str] = None
+        parent_session_id: Optional[str] = None,
+        selected_choice_id: Optional[str] = None,
+        previous_analysis: Optional[Dict] = None
     ) -> Dict:
         """
-        Analyse le message (Version Corrigée)
-        
+        Analyse le message (Version Améliorée - Phase 1)
+
         Améliorations :
-        - Gestion des cas où confiance < 30% (too_vague)
-        - Compteur de tentatives de clarification
-        - Questions ciblées selon infos manquantes
+        - ✅ Gestion des cas où confiance < 30% (too_vague)
+        - ✅ Compteur de tentatives de clarification
+        - ✅ Questions ciblées selon infos manquantes
+        - ✅ PHASE 1: Détection salutations et messages non-IT
         """
         structured_logger.log_analysis_started(message, user_email)
-        
+
+        # ====================================================================
+        # PHASE 1: DÉTECTION PRÉCOCE DES CAS SPÉCIAUX
+        # ====================================================================
+
+        # Détecter les salutations simples (sans contenu IT)
+        if MessageDetection.is_greeting_only(message):
+            structured_logger.log_error("GREETING_DETECTED", f"Message: {message[:50]}")
+            return {
+                "type": "greeting_response",
+                "action": "greeting",
+                "message": GreetingMessages.GREETING_RESPONSE,
+                "summary": None,
+                "clarification_attempts": 0,
+                "show_examples": True
+            }
+
+        # Détecter les messages hors-sujet (non-IT)
+        if MessageDetection.is_non_it_message(message):
+            structured_logger.log_error("NON_IT_MESSAGE", f"Message: {message[:50]}")
+            return {
+                "type": "non_it_response",
+                "action": "non_it",
+                "message": GreetingMessages.NON_IT_RESPONSE,
+                "summary": None,
+                "clarification_attempts": 0,
+                "show_examples": False
+            }
+
+        # ====================================================================
+        # FIN PHASE 1 - SUITE DU WORKFLOW NORMAL
+        # ====================================================================
+
         # Récupérer le nombre de tentatives précédentes
         attempts = 0
+        previous_choice = selected_choice_id
         if parent_session_id:
             parent = db.query(AnalysisSession).filter(
                 AnalysisSession.id == parent_session_id
             ).first()
             if parent:
                 attempts = parent.clarification_attempts + 1
+                if not previous_choice:
+                    previous_choice = parent.selected_choice_id
+                if not previous_analysis:
+                    previous_analysis = parent.ai_summary
         # Vérifier limite de tentatives
         if attempts >= MAX_CLARIFICATION_ATTEMPTS:
             return await self._handle_max_attempts_reached(
@@ -89,10 +137,12 @@ class TicketWorkflow:
             print(f"\nCatégories disponibles : {len(categories)}")
             if not categories:
                 raise AIAnalysisError("Aucune catégorie disponible pour l'analyse.")
-            # Analyse IA
+            # Analyse IA (PHASE 1: avec tentatives progressives)
             analysis = await ai_analyzer.analyze_message_with_smart_summary(
                 message=message,
-                categories=categories
+                categories=categories,
+                clarification_attempt=attempts,
+                previous_analysis=previous_analysis
             )
             
             confidence = analysis.get("confidence_score", 0.0)
@@ -105,6 +155,7 @@ class TicketWorkflow:
                     user_email=user_email,
                     attempts=attempts,
                     clarification_question=analysis.get("clarification_question"),
+                    previous_choice=previous_choice,
                 )
             
             # Déterminer l'action
@@ -141,7 +192,8 @@ class TicketWorkflow:
                 action_type=action,
                 clarification_attempts=attempts,
                 parent_session_id=parent_session_id,
-                expires_at=datetime.now() + timedelta(minutes=SESSION_EXPIRATION_MINUTES)
+                selected_choice_id=selected_choice_id,
+                expires_at=utc_now() + timedelta(minutes=SESSION_EXPIRATION_MINUTES)
             )
             
             db.add(session)
@@ -162,7 +214,16 @@ class TicketWorkflow:
                 missing_info=analysis.get("missing_info", []),
                 attempts=attempts
             )
-            
+
+            # Phase 2: Ajouter les choix guidés si clarification nécessaire
+            guided_choices = None
+            if action == "ask_clarification":
+                guided_choices = context_detector.get_guided_choices(
+                    attempt=attempts,
+                    message=message,
+                    previous_choice=previous_choice,
+                )
+
             return {
                 "session_id": session.id,
                 "type": "smart_summary",
@@ -170,6 +231,7 @@ class TicketWorkflow:
                 "message": message_to_user,
                 "summary": smart_summary,
                 "clarification_attempts": attempts,
+                "guided_choices": guided_choices,
                 "expires_at": session.expires_at.isoformat()
             }
             
@@ -188,35 +250,47 @@ class TicketWorkflow:
         user_email: Optional[str],
         attempts: int,
         clarification_question: Optional[str] = None,
+        previous_choice: Optional[str] = None,
     ) -> Dict:
         """
         Gère le cas où le message est trop vague (confidence < 30%)
-        
-        Utilise la clarification_question générée par l'IA pour un message personnalisé
+
+        Phase 2 : Ajout de choix guidés cliquables
         """
         print("\n clarification_question (inside function too_vague):", clarification_question)
         session = AnalysisSession(
-            ai_summary=None,  # Pas de résumé
+            ai_summary=None,
             original_message=message,
             confidence_score="0.0",
-            # has_category=False,
             status="too_vague",
             user_email=user_email,
             action_type="too_vague",
             clarification_attempts=attempts,
-            expires_at=datetime.now() + timedelta(minutes=SESSION_EXPIRATION_MINUTES)
+            expires_at=utc_now() + timedelta(minutes=SESSION_EXPIRATION_MINUTES)
         )
-        
+
         db.add(session)
         db.commit()
         db.refresh(session)
-        
-        # Générer un message personnalisé basé sur la clarification_question
-        if clarification_question:
-            message_to_user = f"😕 **J'ai besoin de plus de détails pour bien comprendre votre demande.**\n\n{clarification_question}"
-        else:
-            message_to_user = Messages.TOO_VAGUE_MESSAGE
-        
+
+        # Phase 2: Générer les choix guidés selon la tentative
+        detected_context = context_detector.detect_context(message)
+        guided_choices = context_detector.get_guided_choices(
+            attempt=attempts,
+            message=message,
+            previous_choice=previous_choice,
+        )
+
+        # Phase 2: Message adapté avec indication des choix
+        message_to_user = context_detector.get_clarification_message(
+            attempt=attempts,
+            detected_context=detected_context,
+        )
+
+        # Ajouter la question IA en complément si disponible
+        if clarification_question and attempts > 0:
+            message_to_user += f"\n\n💬 *{clarification_question}*"
+
         return {
             "session_id": session.id,
             "type": "smart_summary",
@@ -224,6 +298,7 @@ class TicketWorkflow:
             "message": message_to_user,
             "summary": None,
             "clarification_attempts": attempts,
+            "guided_choices": guided_choices,
             "expires_at": session.expires_at.isoformat()
         }
     
@@ -235,10 +310,19 @@ class TicketWorkflow:
         attempts: int
     ) -> Dict:
         """
-        Gère le cas où l'utilisateur a dépassé le nombre max de tentatives
-        
+        Gère gracieusement le cas où l'utilisateur a dépassé le nombre max de tentatives
+
+        PHASE 1 - Amélioration:
+        - Message empathique et rassurant
+        - Pas d'erreur/crash, création ticket automatique
+        - Escalade vers technicien humain avec priorité haute
+
         Action : Créer un ticket avec catégorie générique + escalade L2
         """
+        structured_logger.log_error(
+            "MAX_ATTEMPTS_REACHED",
+            f"Attempts: {attempts}, User: {user_email}, Message: {message[:50]}"
+        )
         # Catégorie par défaut : "Non catégorisé"
         default_category = db.query(Category).filter(
             Category.abbreviation == "99-non-cat"
@@ -286,6 +370,18 @@ class TicketWorkflow:
         db.commit()
         db.refresh(ticket)
         
+        # PHASE 1: Message empathique et informatif
+        friendly_message = GreetingMessages.MAX_ATTEMPTS_FRIENDLY.format(
+            ticket_number=ticket.ticket_number
+        )
+
+        structured_logger.log_ticket_created(
+            ticket_id=ticket.id,
+            ticket_number=ticket.ticket_number,
+            session_id=None,
+            validation_method="max_attempts_escalation"
+        )
+
         return {
             "type": "ticket_created",
             "ticket_id": ticket.id,
@@ -296,11 +392,8 @@ class TicketWorkflow:
             "category_name": default_category.name,
             "created_at": ticket.created_at.isoformat(),
             "ready_for_L1": False,
-            "message": (
-                f"{Messages.MAX_ATTEMPTS_REACHED}\n\n"
-                f"✅ Ticket {ticket.ticket_number} créé.\n"
-                f"Un technicien vous contactera sous 30 minutes."
-            )
+            "escalated_to_human": True,  # NOUVEAU FLAG
+            "message": friendly_message
         }
     
     # ========================================================================
@@ -375,29 +468,38 @@ class TicketWorkflow:
         self,
         db: Session,
         session_id: str,
-        clarification_response: str
+        clarification_response: str,
+        selected_choice_id: Optional[str] = None
     ) -> Dict:
         """
         Gère ASK_CLARIFICATION (Version Corrigée)
-        
-        CORRECTION : Passe le session_id pour tracking des tentatives
+
+        Phase 3 :
+        - ✅ Passe le session_id pour tracking des tentatives
+        - ✅ Propage selected_choice_id pour choix guidés contextuels
+        - ✅ Transmet previous_analysis pour persistance du contexte IA
         """
         session = self._get_valid_session(db, session_id)
         original_message = session.original_message
-        
+        previous_analysis = session.ai_summary  # Phase 3: capturer avant invalidation
+
         # Invalider l'ancienne session
         session.status = "invalidated"
         session.invalidation_reason = "clarification_provided"
+        if selected_choice_id:
+            session.selected_choice_id = selected_choice_id
         db.commit()
-        
+
         # Enrichir et ré-analyser
         enriched_message = f"{original_message}\n\nPrécision : {clarification_response}"
-        
+
         return await self.analyze_message(
             db=db,
             message=enriched_message,
             user_email=session.user_email,
-            parent_session_id=session_id  # CORRECTION : Passer le parent
+            parent_session_id=session_id,
+            selected_choice_id=selected_choice_id,
+            previous_analysis=previous_analysis
         )
 
     # Les autres méthodes (handle_auto_validate, _create_ticket) 
@@ -536,8 +638,14 @@ class TicketWorkflow:
             structured_logger.log_session_expired(session_id)
             raise SessionNotFoundError(Messages.ERROR_SESSION_NOT_FOUND)
         
-        # Vérifier expiration
-        if session.expires_at < datetime.now(timezone.utc):
+        # Vérifier expiration (comparer en UTC)
+        # Gère les cas où expires_at peut être naive ou aware
+        session_expiry = session.expires_at
+        if session_expiry.tzinfo is None:
+            # Si naive, on assume que c'est UTC (pour compatibilité avec anciennes sessions)
+            session_expiry = session_expiry.replace(tzinfo=timezone.utc)
+
+        if session_expiry < utc_now():
             session.status = "expired"
             db.commit()
             structured_logger.log_session_expired(session_id)

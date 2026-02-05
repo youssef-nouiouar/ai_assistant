@@ -18,5 +18,6 @@ class AnalysisSession(Base):
     user_email = Column(String(255))
     clarification_attempts = Column(Integer, default=0)
     parent_session_id = Column(String(36))
+    selected_choice_id = Column(String(50), nullable=True)
     action_type = Column(String(50))
     ticket_id = Column(Integer)

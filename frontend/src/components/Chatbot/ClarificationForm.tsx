@@ -1,9 +1,11 @@
 // ============================================================================
 // FICHIER : src/components/Chatbot/ClarificationForm.tsx
-// DESCRIPTION : Formulaire de clarification style dark theme
+// DESCRIPTION : Formulaire de clarification avec choix guidés (Phase 2)
 // ============================================================================
 
 import { useState } from 'react';
+import { GuidedChoice } from '../../types/workflow.types';
+import { GuidedChoiceButtons } from './GuidedChoiceButtons';
 
 // Icons inline SVG
 const QuestionIcon = () => (
@@ -28,8 +30,9 @@ interface ClarificationFormProps {
   clarificationQuestion?: string;
   attempts: number;
   maxAttempts: number;
-  onSubmit: (response: string) => void;
+  onSubmit: (response: string, choiceId?: string) => void;
   isLoading: boolean;
+  guidedChoices?: GuidedChoice[] | null; // Phase 2 : Choix cliquables
 }
 
 export const ClarificationForm: React.FC<ClarificationFormProps> = ({
@@ -38,32 +41,43 @@ export const ClarificationForm: React.FC<ClarificationFormProps> = ({
   maxAttempts,
   onSubmit,
   isLoading,
+  guidedChoices,
 }) => {
   const [response, setResponse] = useState('');
+  const [showTextInput, setShowTextInput] = useState(false);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (response.trim()) {
       onSubmit(response);
       setResponse('');
+      setShowTextInput(false);
     }
+  };
+
+  // Phase 2+3: Gérer le clic sur un choix guidé (envoie label + id)
+  const handleChoiceSelect = (choice: GuidedChoice) => {
+    onSubmit(choice.label, choice.id);
   };
 
   // Calcul de la progression
   const progress = ((attempts + 1) / maxAttempts) * 100;
   const remainingAttempts = maxAttempts - attempts - 1;
 
+  // Phase 2: Déterminer s'il y a des choix guidés à afficher
+  const hasGuidedChoices = guidedChoices && guidedChoices.length > 0;
+
   return (
     <div className="mb-4 animate-scale-in">
       <div className="relative overflow-hidden rounded-xl bg-[#1e1e28] border border-white/10 shadow-xl">
         {/* Progress bar */}
         <div className="absolute top-0 inset-x-0 h-1 bg-zinc-800">
-          <div 
+          <div
             className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-all duration-500 ease-out"
             style={{ width: `${progress}%` }}
           />
         </div>
-        
+
         {/* Glow effect */}
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-1/2 h-32 bg-indigo-500/5 blur-3xl pointer-events-none" />
 
@@ -83,7 +97,7 @@ export const ClarificationForm: React.FC<ClarificationFormProps> = ({
                 </p>
               </div>
             </div>
-            
+
             {/* Progress step badge */}
             <div className="flex-shrink-0">
               <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-indigo-500/15 text-indigo-400">
@@ -93,55 +107,94 @@ export const ClarificationForm: React.FC<ClarificationFormProps> = ({
             </div>
           </div>
 
-          {/* Formulaire */}
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="relative">
-              <textarea
-                value={response}
-                onChange={(e) => setResponse(e.target.value)}
-                rows={4}
-                className="w-full px-4 py-3 pr-12
-                  bg-[#16161d] border border-white/10 rounded-xl
-                  text-zinc-100 placeholder-zinc-600
-                  focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50
-                  transition-all duration-200 resize-none"
-                placeholder="Décrivez votre problème de manière plus détaillée..."
-                required
-                disabled={isLoading}
+          {/* Phase 2: Choix guidés cliquables */}
+          {hasGuidedChoices && !showTextInput && (
+            <>
+              <GuidedChoiceButtons
+                choices={guidedChoices!}
+                onChoiceSelect={handleChoiceSelect}
+                isLoading={isLoading}
               />
-              
-              {/* Character count hint */}
-              <div className="absolute bottom-3 right-3 text-xs text-zinc-600">
-                {response.length > 0 && `${response.length} caractères`}
-              </div>
-            </div>
 
-            {/* Submit button */}
-            <button
-              type="submit"
-              disabled={isLoading || !response.trim()}
-              className="w-full flex items-center justify-center gap-2 px-6 py-3.5 
-                bg-gradient-to-r from-indigo-600 to-purple-600 
-                hover:from-indigo-500 hover:to-purple-500
-                disabled:from-zinc-700 disabled:to-zinc-600 disabled:cursor-not-allowed
-                text-white font-semibold rounded-xl
-                shadow-lg shadow-indigo-500/25 hover:shadow-indigo-500/40
-                transition-all duration-300 
-                hover:-translate-y-0.5 active:translate-y-0"
-            >
-              {isLoading ? (
-                <>
-                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  <span>Envoi en cours...</span>
-                </>
-              ) : (
-                <>
-                  <SendIcon />
-                  <span>Envoyer ma réponse</span>
-                </>
-              )}
-            </button>
-          </form>
+              {/* Bouton pour basculer vers texte libre */}
+              <button
+                onClick={() => setShowTextInput(true)}
+                className="w-full mt-2 py-2 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+              >
+                Aucune option ne correspond ? Tapez votre réponse
+              </button>
+            </>
+          )}
+
+          {/* Formulaire texte (affiché si pas de choix ou si l'utilisateur clique "autre") */}
+          {(!hasGuidedChoices || showTextInput) && (
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="relative">
+                <textarea
+                  value={response}
+                  onChange={(e) => setResponse(e.target.value)}
+                  rows={4}
+                  className="w-full px-4 py-3 pr-12
+                    bg-[#16161d] border border-white/10 rounded-xl
+                    text-zinc-100 placeholder-zinc-600
+                    focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50
+                    transition-all duration-200 resize-none"
+                  placeholder="Décrivez votre problème de manière plus détaillée..."
+                  required
+                  disabled={isLoading}
+                />
+
+                {/* Character count hint */}
+                <div className="absolute bottom-3 right-3 text-xs text-zinc-600">
+                  {response.length > 0 && `${response.length} caractères`}
+                </div>
+              </div>
+
+              <div className="flex gap-2">
+                {/* Bouton retour aux choix si disponibles */}
+                {hasGuidedChoices && showTextInput && (
+                  <button
+                    type="button"
+                    onClick={() => setShowTextInput(false)}
+                    className="px-4 py-3.5
+                      bg-[#16161d] hover:bg-[#252532]
+                      border border-white/10 hover:border-white/20
+                      text-zinc-400 hover:text-zinc-200
+                      font-medium rounded-xl
+                      transition-all duration-200"
+                  >
+                    Retour aux choix
+                  </button>
+                )}
+
+                {/* Submit button */}
+                <button
+                  type="submit"
+                  disabled={isLoading || !response.trim()}
+                  className="flex-1 flex items-center justify-center gap-2 px-6 py-3.5
+                    bg-gradient-to-r from-indigo-600 to-purple-600
+                    hover:from-indigo-500 hover:to-purple-500
+                    disabled:from-zinc-700 disabled:to-zinc-600 disabled:cursor-not-allowed
+                    text-white font-semibold rounded-xl
+                    shadow-lg shadow-indigo-500/25 hover:shadow-indigo-500/40
+                    transition-all duration-300
+                    hover:-translate-y-0.5 active:translate-y-0"
+                >
+                  {isLoading ? (
+                    <>
+                      <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      <span>Envoi en cours...</span>
+                    </>
+                  ) : (
+                    <>
+                      <SendIcon />
+                      <span>Envoyer ma réponse</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          )}
 
           {/* Info message for final step */}
           {remainingAttempts === 0 && (

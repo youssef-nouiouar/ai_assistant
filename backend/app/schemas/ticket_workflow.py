@@ -13,7 +13,7 @@ from typing import Optional, List, Dict, Any
 
 class MessageInput(BaseModel):
     """Message utilisateur initial"""
-    message: str = Field(..., min_length=5, description="Message de l'utilisateur")
+    message: str = Field(..., min_length=1, description="Message de l'utilisateur")
     user_email: Optional[str] = Field(None, description="Email utilisateur")
 
 
@@ -50,6 +50,7 @@ class ClarificationInput(BaseModel):
     """Réponse à clarification"""
     session_id: str = Field(..., description="ID de la session")
     clarification_response: str = Field(..., description="Réponse détaillée")
+    selected_choice_id: Optional[str] = Field(None, description="ID du choix guidé sélectionné")
 
 
 # ========================================================================
@@ -77,18 +78,29 @@ class SmartSummary(BaseModel):
     missing_info: List[str] = []  # NOUVEAU : Liste des infos manquantes
 
 
+class GuidedChoiceSchema(BaseModel):
+    """Phase 2 - Choix cliquable proposé à l'utilisateur"""
+    id: str
+    label: str
+    icon: str = ""
+
+
 class AnalysisResponse(BaseModel):
     """
     Réponse après analyse (flexible)
+
+    Phase 2 : Ajout de guided_choices et show_examples
     """
-    session_id: str
+    session_id: Optional[str] = None  # None pour greeting/non_it
     type: str = "smart_summary"
-    action: str  # auto_validate, confirm_summary, ask_clarification, too_vague
+    action: str  # auto_validate, confirm_summary, ask_clarification, too_vague, greeting, non_it
     message: str
     summary: Optional[SmartSummary] = None  # Peut être None si too_vague
     clarification_questions: Optional[List[str]] = None  # Questions ciblées
     clarification_attempts: int = 0  # Nombre de tentatives
-    expires_at: str
+    guided_choices: Optional[List[GuidedChoiceSchema]] = None  # Phase 2 : Choix cliquables
+    show_examples: Optional[bool] = None  # Phase 1 : Afficher exemples
+    expires_at: Optional[str] = None  # None pour greeting/non_it
 
 
 class TicketCreatedResponse(BaseModel):
@@ -96,14 +108,15 @@ class TicketCreatedResponse(BaseModel):
     type: str = "ticket_created"
     ticket_id: int
     ticket_number: str
-    glpi_ticket_id: Optional[int] = None  # NOUVEAU
+    glpi_ticket_id: Optional[int] = None
     title: str
     status: str
     priority: str
     category_name: str
     created_at: str
     ready_for_L1: bool
-    synced_to_glpi: bool = False  # NOUVEAU
+    synced_to_glpi: bool = False
+    escalated_to_human: Optional[bool] = None  # Phase 1 : escalade humaine
     message: str
 
 

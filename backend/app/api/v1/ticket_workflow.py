@@ -4,6 +4,7 @@
 # ============================================================================
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_database
@@ -27,17 +28,18 @@ from app.core.exceptions import (
 router = APIRouter()
 
 
-@router.post("/analyze", response_model=AnalysisResponse)
+@router.post("/analyze")
 async def analyze_message(
     data: MessageInput,
     db: Session = Depends(get_database)
 ):
     """
     **COMPOSANT 0 - Analyse du message**
-    
-    Production Grade :
-    - ✅ Crée une session sécurisée
-    - ✅ Retourne seulement un session_id
+
+    Phase 2 :
+    - ✅ Supporte greeting/non_it (sans session)
+    - ✅ Supporte ticket_created (max attempts)
+    - ✅ Supporte guided_choices (choix cliquables)
     - ✅ Logs structurés
     """
     try:
@@ -49,8 +51,13 @@ async def analyze_message(
         )
         ended_at = time.time()
         print("\nAnalysis Result:", result, "Time taken:", ended_at - started_at)
+
+        # Phase 2: Retourner le bon type de réponse
+        if result.get("type") == "ticket_created":
+            return TicketCreatedResponse(**result)
+
         return AnalysisResponse(**result)
-        
+
     except AIAnalysisError as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -116,26 +123,33 @@ async def confirm_or_modify_summary(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
 
 
-@router.post("/clarify", response_model=AnalysisResponse)
+@router.post("/clarify")
 async def handle_clarification(
     data: ClarificationInput,
     db: Session = Depends(get_database)
 ):
     """
     **ACTION : ASK_CLARIFICATION**
-    
-    Production Grade :
+
+    Phase 2 :
     - ✅ Invalide l'ancienne session
     - ✅ Crée une nouvelle session
+    - ✅ Supporte ticket_created si max attempts atteint
+    - ✅ Supporte guided_choices
     """
     try:
         result = await ticket_workflow.handle_clarification(
             db=db,
             session_id=data.session_id,
-            clarification_response=data.clarification_response
+            clarification_response=data.clarification_response,
+            selected_choice_id=data.selected_choice_id
         )
-        
+
+        # Phase 2: Retourner le bon type de réponse
+        if result.get("type") == "ticket_created":
+            return TicketCreatedResponse(**result)
+
         return AnalysisResponse(**result)
-        
+
     except SessionNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))

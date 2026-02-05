@@ -1,6 +1,6 @@
 // ============================================================================
 // FICHIER : src/hooks/useTicketWorkflow.ts
-// DESCRIPTION : Hook personnalisé pour gérer le workflow
+// DESCRIPTION : Hook personnalisé pour gérer le workflow (Phase 2)
 // ============================================================================
 
 import { useState, useCallback } from 'react';
@@ -10,6 +10,7 @@ import {
   TicketCreatedResponse,
   ChatMessage,
   ModificationData,
+  GuidedChoice,
 } from '../types/workflow.types';
 
 export const useTicketWorkflow = () => {
@@ -18,6 +19,7 @@ export const useTicketWorkflow = () => {
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [currentAction, setCurrentAction] = useState<string | null>(null);
   const [currentSummary, setCurrentSummary] = useState<any>(null);
+  const [currentGuidedChoices, setCurrentGuidedChoices] = useState<GuidedChoice[] | null>(null); // Phase 2
   const [error, setError] = useState<string | null>(null);
 
   const addMessage = useCallback(
@@ -42,9 +44,35 @@ export const useTicketWorkflow = () => {
 
       try {
         const response = await TicketWorkflowAPI.analyzeMessage(message, userEmail);
+
+        // Phase 2: Gérer les réponses sans session (greeting/non_it)
+        if (response.action === 'greeting' || response.action === 'non_it') {
+          addMessage('bot', response.message, {
+            action: response.action,
+            showExamples: response.show_examples,
+          });
+          setCurrentSessionId(null);
+          setCurrentAction(null);
+          setCurrentSummary(null);
+          setCurrentGuidedChoices(null);
+          return response;
+        }
+
+        // Phase 2: Gérer ticket_created (max attempts via /analyze)
+        if (response.type === 'ticket_created') {
+          addMessage('bot', (response as any).message, { ticket: response });
+          setCurrentSessionId(null);
+          setCurrentAction(null);
+          setCurrentSummary(null);
+          setCurrentGuidedChoices(null);
+          return response;
+        }
+
+        // Workflow normal
         setCurrentSessionId(response.session_id);
         setCurrentAction(response.action);
         setCurrentSummary(response.summary);
+        setCurrentGuidedChoices(response.guided_choices || null); // Phase 2
 
         const clarificationQuestion = response.summary?.clarification_question;
         addMessage('bot', response.message, {
@@ -53,6 +81,7 @@ export const useTicketWorkflow = () => {
           summary: response.summary,
           clarificationQuestion: clarificationQuestion,
           attempts: response.clarification_attempts,
+          guidedChoices: response.guided_choices, // Phase 2
         });
 
         return response;
@@ -89,6 +118,7 @@ export const useTicketWorkflow = () => {
         setCurrentSessionId(null);
         setCurrentAction(null);
         setCurrentSummary(null);
+        setCurrentGuidedChoices(null);
         return response;
       } catch (err: any) {
         const errorMsg =
@@ -123,6 +153,7 @@ export const useTicketWorkflow = () => {
         setCurrentSessionId(null);
         setCurrentAction(null);
         setCurrentSummary(null);
+        setCurrentGuidedChoices(null);
         return response;
       } catch (err: any) {
         const errorMsg =
@@ -138,7 +169,7 @@ export const useTicketWorkflow = () => {
   );
 
   const clarify = useCallback(
-    async (clarificationResponse: string) => {
+    async (clarificationResponse: string, choiceId?: string) => {
       if (!currentSessionId) {
         setError('Session expirée');
         return;
@@ -151,11 +182,24 @@ export const useTicketWorkflow = () => {
       try {
         const response = await TicketWorkflowAPI.clarify(
           currentSessionId,
-          clarificationResponse
+          clarificationResponse,
+          choiceId
         );
+
+        // Phase 2: Gérer ticket_created (max attempts via /clarify)
+        if (response.type === 'ticket_created') {
+          addMessage('bot', (response as any).message, { ticket: response });
+          setCurrentSessionId(null);
+          setCurrentAction(null);
+          setCurrentSummary(null);
+          setCurrentGuidedChoices(null);
+          return response;
+        }
+
         setCurrentSessionId(response.session_id);
         setCurrentAction(response.action);
         setCurrentSummary(response.summary);
+        setCurrentGuidedChoices(response.guided_choices || null); // Phase 2
 
         const clarificationQuestion = response.summary?.clarification_question;
         addMessage('bot', response.message, {
@@ -164,6 +208,7 @@ export const useTicketWorkflow = () => {
           summary: response.summary,
           clarificationQuestion: clarificationQuestion,
           attempts: response.clarification_attempts,
+          guidedChoices: response.guided_choices, // Phase 2
         });
 
         return response;
@@ -185,6 +230,7 @@ export const useTicketWorkflow = () => {
     setCurrentSessionId(null);
     setCurrentAction(null);
     setCurrentSummary(null);
+    setCurrentGuidedChoices(null);
     setError(null);
   }, []);
 
@@ -194,6 +240,7 @@ export const useTicketWorkflow = () => {
     currentSessionId,
     currentAction,
     currentSummary,
+    currentGuidedChoices, // Phase 2
     error,
     analyzeMessage,
     autoValidate,
