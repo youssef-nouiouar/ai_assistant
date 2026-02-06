@@ -94,6 +94,7 @@ export const ChatbotInterface = () => {
     currentAction,
     currentSummary,
     currentGuidedChoices,
+    currentSuggestionMetadata,
     error,
     analyzeMessage,
     autoValidate,
@@ -356,6 +357,7 @@ export const ChatbotInterface = () => {
               onSubmit={handleClarification}
               isLoading={isLoading}
               guidedChoices={currentGuidedChoices}
+              suggestionMetadata={currentSuggestionMetadata}
             />
           )}
 

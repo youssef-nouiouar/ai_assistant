@@ -21,6 +21,7 @@ from app.models.analysis_session import AnalysisSession
 from app.services.ai_analyzer import ai_analyzer
 from app.services.intent_validator import intent_validator
 from app.services.context_detector import context_detector
+from app.services.suggestion_manager import suggestion_manager, SuggestionContext
 from app.core.exceptions import (
     SessionNotFoundError,
     SessionAlreadyConvertedError,
@@ -35,6 +36,7 @@ from app.core.constants import (
     ModifiableFields,
     SESSION_EXPIRATION_MINUTES,
     MAX_CLARIFICATION_ATTEMPTS,
+    MAX_CONVERSATION_TURNS,
     MessageDetection,
     GreetingMessages
 )
@@ -87,7 +89,7 @@ class TicketWorkflow:
             return {
                 "type": "greeting_response",
                 "action": "greeting",
-                "message": GreetingMessages.GREETING_RESPONSE,
+                "message": GreetingMessages.get("greeting"),  # Message varié
                 "summary": None,
                 "clarification_attempts": 0,
                 "show_examples": True
@@ -99,7 +101,7 @@ class TicketWorkflow:
             return {
                 "type": "non_it_response",
                 "action": "non_it",
-                "message": GreetingMessages.NON_IT_RESPONSE,
+                "message": GreetingMessages.get("non_it"),  # Message varié
                 "summary": None,
                 "clarification_attempts": 0,
                 "show_examples": False
@@ -132,17 +134,23 @@ class TicketWorkflow:
             )
         
         try:
-            # Récupérer les catégories
+            # Récupérer les catégories (toutes: level 1 + level 2)
             categories = self._get_categories(db)
-            print(f"\nCatégories disponibles : {len(categories)}")
-            if not categories:
+            subcategories = self._get_subcategories(categories)
+            print(f"\nCatégories disponibles : {len(categories)} (dont {len(subcategories)} sous-catégories)")
+            if not subcategories:
                 raise AIAnalysisError("Aucune catégorie disponible pour l'analyse.")
-            # Analyse IA (PHASE 1: avec tentatives progressives)
+
+            # NOUVEAU: Détecter le contexte par mots-clés pour améliorer la classification
+            detected_context = context_detector.detect_context(message)
+
+            # Analyse IA (utilise seulement les sous-catégories level 2)
             analysis = await ai_analyzer.analyze_message_with_smart_summary(
                 message=message,
-                categories=categories,
+                categories=subcategories,
                 clarification_attempt=attempts,
-                previous_analysis=previous_analysis
+                previous_analysis=previous_analysis,
+                detected_context=detected_context  # NOUVEAU
             )
             
             confidence = analysis.get("confidence_score", 0.0)
@@ -215,14 +223,33 @@ class TicketWorkflow:
                 attempts=attempts
             )
 
-            # Phase 2: Ajouter les choix guidés si clarification nécessaire
+            # Phase 3: Suggestions intelligentes avec raisonnement
             guided_choices = None
+            suggestion_metadata = None
+
             if action == "ask_clarification":
-                guided_choices = context_detector.get_guided_choices(
-                    attempt=attempts,
-                    message=message,
-                    previous_choice=previous_choice,
+                # Créer le contexte pour le SuggestionManager
+                suggestion_context = SuggestionContext(
+                    user_input=message,
+                    previous_inputs=[session.original_message] if parent_session_id else [],
+                    detected_category=detected_context,
+                    confidence_score=confidence,
+                    clarification_attempt=attempts,
+                    previous_choice_id=previous_choice,
+                    ai_clarification_question=analysis.get("clarification_question"),
+                    db_categories=categories,
                 )
+
+                # Obtenir des suggestions intelligentes avec raisonnement
+                suggestion_response = suggestion_manager.get_smart_suggestions(suggestion_context)
+
+                guided_choices = suggestion_response.suggestions
+                suggestion_metadata = {
+                    "reasoning": suggestion_response.reasoning,
+                    "should_regenerate": suggestion_response.should_regenerate,
+                    "regeneration_reason": suggestion_response.regeneration_reason,
+                    "relevance_score": suggestion_response.relevance_score
+                }
 
             return {
                 "session_id": session.id,
@@ -232,6 +259,7 @@ class TicketWorkflow:
                 "summary": smart_summary,
                 "clarification_attempts": attempts,
                 "guided_choices": guided_choices,
+                "suggestion_metadata": suggestion_metadata,
                 "expires_at": session.expires_at.isoformat()
             }
             
@@ -273,13 +301,31 @@ class TicketWorkflow:
         db.commit()
         db.refresh(session)
 
-        # Phase 2: Générer les choix guidés selon la tentative
+        # Phase 3: Suggestions intelligentes avec raisonnement
         detected_context = context_detector.detect_context(message)
-        guided_choices = context_detector.get_guided_choices(
-            attempt=attempts,
-            message=message,
-            previous_choice=previous_choice,
+
+        # Créer le contexte pour le SuggestionManager
+        suggestion_context = SuggestionContext(
+            user_input=message,
+            previous_inputs=[],
+            detected_category=detected_context,
+            confidence_score=0.0,  # Confiance nulle pour too_vague
+            clarification_attempt=attempts,
+            previous_choice_id=previous_choice,
+            ai_clarification_question=clarification_question,
+            db_categories=self._get_categories(db),
         )
+
+        # Obtenir des suggestions intelligentes avec raisonnement
+        suggestion_response = suggestion_manager.get_smart_suggestions(suggestion_context)
+
+        guided_choices = suggestion_response.suggestions
+        suggestion_metadata = {
+            "reasoning": suggestion_response.reasoning,
+            "should_regenerate": suggestion_response.should_regenerate,
+            "regeneration_reason": suggestion_response.regeneration_reason,
+            "relevance_score": suggestion_response.relevance_score
+        }
 
         # Phase 2: Message adapté avec indication des choix
         message_to_user = context_detector.get_clarification_message(
@@ -297,6 +343,7 @@ class TicketWorkflow:
             "action": "too_vague",
             "message": message_to_user,
             "summary": None,
+            "suggestion_metadata": suggestion_metadata,
             "clarification_attempts": attempts,
             "guided_choices": guided_choices,
             "expires_at": session.expires_at.isoformat()
@@ -346,6 +393,7 @@ class TicketWorkflow:
             user = db.query(User).filter(User.email == user_email).first()
         
         ticket = Ticket(
+            ticket_number=self.generate_ticket_number(db),
             title=f"Demande nécessitant clarification : {message[:50]}...",
             description=(
                 f"🤖 Ticket créé automatiquement après {attempts} tentatives de clarification.\n\n"
@@ -358,10 +406,8 @@ class TicketWorkflow:
             priority="high",  # Haute priorité car bloque l'utilisateur
             category_id=default_category.id,
             created_by_user_id=user.id if user else None,
-            ai_analyzed=True,
             ai_confidence_score=0.0,
             ai_extracted_symptoms=[],
-            user_validated_summary=False,
             validation_method="max_attempts_escalation",
             ready_for_l1=False,  # Escalade directe L2
         )
@@ -370,8 +416,9 @@ class TicketWorkflow:
         db.commit()
         db.refresh(ticket)
         
-        # PHASE 1: Message empathique et informatif
-        friendly_message = GreetingMessages.MAX_ATTEMPTS_FRIENDLY.format(
+        # PHASE 1: Message empathique et informatif (avec variation)
+        friendly_message = GreetingMessages.get(
+            "max_attempts",
             ticket_number=ticket.ticket_number
         )
 
@@ -452,9 +499,9 @@ class TicketWorkflow:
         # Invalider session
         session.status = "converted_to_ticket"
         session.ticket_id = str(ticket["ticket_id"])
-        session.conversion_at = datetime.now()
+        session.conversion_at = utc_now()
         db.commit()
-        
+
         structured_logger.log_ticket_created(
             ticket_id=ticket["ticket_id"],
             ticket_number=ticket["ticket_number"],
@@ -472,35 +519,200 @@ class TicketWorkflow:
         selected_choice_id: Optional[str] = None
     ) -> Dict:
         """
-        Gère ASK_CLARIFICATION (Version Corrigée)
+        Gère ASK_CLARIFICATION (Version Corrigée - Fix stabilité + Topic Shift)
 
         Phase 3 :
         - ✅ Passe le session_id pour tracking des tentatives
         - ✅ Propage selected_choice_id pour choix guidés contextuels
         - ✅ Transmet previous_analysis pour persistance du contexte IA
+
+        FIX CRITIQUE:
+        - ✅ N'invalide la session qu'APRÈS succès de l'analyse
+        - ✅ En cas d'erreur, la session reste utilisable pour retry
+
+        NOUVEAU - TOPIC SHIFT:
+        - ✅ Détecte si l'utilisateur change de sujet
+        - ✅ Si topic shift: propose de choisir OU traite le nouveau sujet
+        - ✅ Évite la fusion incohérente de contextes
         """
         session = self._get_valid_session(db, session_id)
         original_message = session.original_message
         previous_analysis = session.ai_summary  # Phase 3: capturer avant invalidation
+        user_email = session.user_email  # Capturer avant commit potentiel
 
-        # Invalider l'ancienne session
-        session.status = "invalidated"
-        session.invalidation_reason = "clarification_provided"
+        # Stocker le choice_id sur la session (mais ne pas invalider encore)
         if selected_choice_id:
             session.selected_choice_id = selected_choice_id
-        db.commit()
+            db.commit()
 
-        # Enrichir et ré-analyser
+        # ================================================================
+        # NOUVEAU: Détection de changement de sujet (Topic Shift)
+        # ================================================================
+        topic_shift = context_detector.detect_topic_shift(
+            original_message=original_message,
+            clarification_response=clarification_response
+        )
+
+        if topic_shift["is_topic_shift"]:
+            structured_logger.log_error(
+                "TOPIC_SHIFT_DETECTED",
+                f"Original: {topic_shift['original_context']} → New: {topic_shift['new_context']}"
+            )
+
+            if topic_shift["recommendation"] == "replace":
+                # Changement radical de sujet → traiter comme NOUVEAU problème
+                # Invalider l'ancienne session et repartir de zéro
+                session.status = "invalidated"
+                session.invalidation_reason = "topic_shift_replaced"
+                db.commit()
+
+                # Analyser le nouveau message seul (pas de fusion)
+                return await self.analyze_message(
+                    db=db,
+                    message=clarification_response,  # Seulement le nouveau message
+                    user_email=user_email,
+                    parent_session_id=None,  # Pas de parent, c'est un nouveau départ
+                    selected_choice_id=None,
+                    previous_analysis=None
+                )
+
+            elif topic_shift["recommendation"] == "ask_user":
+                # Sujets potentiellement liés → demander à l'utilisateur
+                # Créer une session spéciale pour gérer le topic shift
+                shift_session = AnalysisSession(
+                    ai_summary={
+                        "topic_shift": True,
+                        "original_context": topic_shift["original_context"],
+                        "new_context": topic_shift["new_context"],
+                        "original_message": original_message,
+                        "clarification_response": clarification_response
+                    },
+                    original_message=original_message,
+                    confidence_score="0.0",
+                    status="pending_topic_choice",
+                    user_email=user_email,
+                    action_type="topic_shift",
+                    clarification_attempts=session.clarification_attempts,
+                    parent_session_id=session_id,
+                    expires_at=utc_now() + timedelta(minutes=SESSION_EXPIRATION_MINUTES)
+                )
+
+                db.add(shift_session)
+                db.commit()
+                db.refresh(shift_session)
+
+                return {
+                    "session_id": shift_session.id,
+                    "type": "topic_shift",
+                    "action": "topic_shift",
+                    "message": context_detector.get_topic_shift_message(
+                        topic_shift["original_context"],
+                        topic_shift["new_context"]
+                    ),
+                    "summary": None,
+                    "clarification_attempts": session.clarification_attempts,
+                    "guided_choices": context_detector.get_topic_shift_choices(),
+                    "expires_at": shift_session.expires_at.isoformat()
+                }
+
+        # ================================================================
+        # PAS DE TOPIC SHIFT → Comportement normal (fusion du contexte)
+        # ================================================================
         enriched_message = f"{original_message}\n\nPrécision : {clarification_response}"
 
-        return await self.analyze_message(
-            db=db,
-            message=enriched_message,
-            user_email=session.user_email,
-            parent_session_id=session_id,
-            selected_choice_id=selected_choice_id,
-            previous_analysis=previous_analysis
-        )
+        try:
+            # Tenter l'analyse AVANT d'invalider
+            result = await self.analyze_message(
+                db=db,
+                message=enriched_message,
+                user_email=user_email,
+                parent_session_id=session_id,
+                selected_choice_id=selected_choice_id,
+                previous_analysis=previous_analysis
+            )
+
+            # Succès ! Maintenant on peut invalider la session
+            session.status = "invalidated"
+            session.invalidation_reason = "clarification_provided"
+            db.commit()
+
+            return result
+
+        except Exception as e:
+            # En cas d'erreur, la session reste valide pour un retry
+            structured_logger.log_error(
+                "CLARIFICATION_FAILED",
+                f"Session {session_id} kept valid after error: {str(e)}"
+            )
+            raise
+
+    async def handle_topic_shift_choice(
+        self,
+        db: Session,
+        session_id: str,
+        choice: str  # "keep_new", "keep_old", "both_problems"
+    ) -> Dict:
+        """
+        Gère le choix de l'utilisateur suite à un topic shift détecté.
+
+        - keep_new: Traiter le nouveau problème
+        - keep_old: Revenir au problème original
+        - both_problems: Créer un ticket avec les deux problèmes mentionnés
+        """
+        session = self._get_valid_session(db, session_id)
+
+        if session.action_type != "topic_shift":
+            raise InvalidUserResponseError("Cette session n'est pas en attente d'un choix de sujet.")
+
+        topic_data = session.ai_summary
+        original_message = topic_data.get("original_message", "")
+        clarification_response = topic_data.get("clarification_response", "")
+
+        # Invalider la session de topic shift
+        session.status = "invalidated"
+        session.invalidation_reason = f"topic_shift_resolved_{choice}"
+        db.commit()
+
+        if choice == "keep_new":
+            # Traiter seulement le nouveau problème
+            return await self.analyze_message(
+                db=db,
+                message=clarification_response,
+                user_email=session.user_email,
+                parent_session_id=None,
+                selected_choice_id=None,
+                previous_analysis=None
+            )
+
+        elif choice == "keep_old":
+            # Revenir au problème original
+            return await self.analyze_message(
+                db=db,
+                message=original_message,
+                user_email=session.user_email,
+                parent_session_id=None,
+                selected_choice_id=None,
+                previous_analysis=None
+            )
+
+        elif choice == "both_problems":
+            # L'utilisateur a vraiment deux problèmes → les mentionner explicitement
+            combined_message = (
+                f"J'ai deux problèmes à signaler :\n"
+                f"1. {original_message}\n"
+                f"2. {clarification_response}"
+            )
+            return await self.analyze_message(
+                db=db,
+                message=combined_message,
+                user_email=session.user_email,
+                parent_session_id=None,
+                selected_choice_id=None,
+                previous_analysis=None
+            )
+
+        else:
+            raise InvalidUserResponseError(f"Choix invalide: {choice}")
 
     # Les autres méthodes (handle_auto_validate, _create_ticket) 
 
@@ -537,9 +749,9 @@ class TicketWorkflow:
         # 4. Invalider la session (Idempotence)
         session.status = "converted_to_ticket"
         session.ticket_id = str(ticket["ticket_id"])
-        session.conversion_at = datetime.now()
+        session.conversion_at = utc_now()
         db.commit()
-        
+
         structured_logger.log_ticket_created(
             ticket_id=ticket["ticket_id"],
             ticket_number=ticket["ticket_number"],
@@ -572,53 +784,68 @@ class TicketWorkflow:
         attempts: int = 0
     ) -> str:
         """
-        Génère le message utilisateur (Version Corrigée)
-        
-        CORRECTION : Questions ciblées pour clarification
+        Génère le message utilisateur (Version Professionnelle)
+
+        AMÉLIORATIONS:
+        - ✅ Messages variés (sélection aléatoire)
+        - ✅ Messages plus courts
+        - ✅ Contexte-aware (évite répétitions si attempts > 0)
         """
         if action == "auto_validate":
-            return Messages.AUTO_VALIDATE_MESSAGE.format(
-                summary=self._format_summary_display(summary)
-            )
-        
+            return Messages.get("auto_validate", summary=self._format_summary_display(summary))
+
         elif action == "confirm_summary":
-            return Messages.CONFIRM_SUMMARY_MESSAGE.format(
-                summary=self._format_summary_display(summary)
-            )
-        
+            return Messages.get("confirm_summary", summary=self._format_summary_display(summary))
+
         elif action == "ask_clarification":
-            # CORRECTION : Utiliser la question de clarification de l'analyse IA
-            clarification_question = summary.get("clarification_question", 
+            # Utiliser la question de clarification de l'analyse IA
+            clarification_question = summary.get("clarification_question",
                                                   "Pouvez-vous fournir plus de détails ?")
-            
-            return Messages.ASK_CLARIFICATION_MESSAGE.format(
-                missing_info_list=clarification_question
-            )
-        
+
+            # CONTEXT-AWARE: Si c'est une tentative suivante, message plus court
+            if attempts > 0:
+                # On ne répète pas le contexte, juste la question
+                return f"🔍 **Encore une précision :**\n\n{clarification_question}"
+
+            return Messages.get("ask_clarification", missing_info_list=clarification_question)
+
         elif action == "too_vague":
-            return Messages.TOO_VAGUE_MESSAGE
-        
+            return Messages.get("too_vague")
+
         return "Message par défaut"
-    
+
     def _format_summary_display(self, summary: Dict) -> str:
-        """Formatte le résumé pour affichage"""
+        """
+        Formatte le résumé pour affichage (Version Compacte)
+
+        AMÉLIORATION: Format plus court et lisible
+        """
         parts = []
-        
-        if summary.get("category") and summary["category"].get("name"):
-            parts.append(f"📋 **Catégorie** : {summary['category']['name']}")
-        
-        if summary.get("priority"):
-            parts.append(f"🎯 **Priorité** : {summary['priority'].upper()}")
-        
+
+        # Ligne compacte: Catégorie + Priorité
+        cat_name = summary.get("category", {}).get("name") if summary.get("category") else None
+        priority = summary.get("priority", "").upper() if summary.get("priority") else None
+
+        if cat_name and priority:
+            parts.append(f"📋 {cat_name} • 🎯 {priority}")
+        elif cat_name:
+            parts.append(f"📋 {cat_name}")
+        elif priority:
+            parts.append(f"🎯 {priority}")
+
+        # Titre
         if summary.get("title"):
-            parts.append(f"📝 **Titre** : {summary['title']}")
-        
-        if summary.get("symptoms"):
-            parts.append("\n**Symptômes identifiés** :")
-            for symptom in summary["symptoms"]:
-                parts.append(f"  • {symptom}")
-        
-        return "\n".join(parts) if parts else "Informations en cours d'analyse..."
+            parts.append(f"📝 {summary['title']}")
+
+        # Symptômes (max 3 pour rester court)
+        symptoms = summary.get("symptoms", [])
+        if symptoms:
+            symptoms_display = symptoms[:3]  # Max 3 symptômes
+            parts.append("**Symptômes** : " + ", ".join(symptoms_display))
+            if len(symptoms) > 3:
+                parts.append(f"  _(+{len(symptoms) - 3} autres)_")
+
+        return "\n".join(parts) if parts else "Analyse en cours..."
     
     # Autres méthodes utilitaires identiques...
     def _get_valid_session(self, db: Session, session_id: str) -> AnalysisSession:
@@ -659,17 +886,24 @@ class TicketWorkflow:
         return session
     
     def _get_categories(self, db: Session) -> List[Dict]:
-        """Récupère les sous-catégories"""
-        categories = db.query(Category).filter(Category.level == 2).all()
+        """Récupère toutes les catégories actives (level 1 + level 2)"""
+        categories = db.query(Category).filter(Category.is_active == True).all()
         return [
             {
                 "id": cat.id,
                 "name": cat.name,
                 "abbreviation": cat.abbreviation,
-                "parent_id": cat.parent_id
+                "parent_id": cat.parent_id,
+                "level": cat.level,
+                "is_active": cat.is_active,
             }
             for cat in categories
         ]
+
+    @staticmethod
+    def _get_subcategories(categories: List[Dict]) -> List[Dict]:
+        """Filtre les sous-catégories (level 2) pour l'AI analyzer"""
+        return [c for c in categories if c.get("level") == 2]
     
     def _generate_description(self, symptoms: List[str], extracted_info: Dict) -> str:
         """Génère une description structurée"""
@@ -736,7 +970,7 @@ class TicketWorkflow:
                 )
                 
                 t = glpi_ticket.get("id")
-                glpi_sync_at = datetime.now()
+                glpi_sync_at = utc_now()
                 
                 structured_logger.log_error(
                     "GLPI_TICKET_CREATED",
