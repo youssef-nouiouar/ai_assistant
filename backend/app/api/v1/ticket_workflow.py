@@ -13,6 +13,7 @@ from app.schemas.ticket_workflow import (
     AutoValidateInput,
     ConfirmSummaryInput,
     ClarificationInput,
+    TopicShiftChoiceInput,
     AnalysisResponse,
     TicketCreatedResponse
 )
@@ -153,3 +154,39 @@ async def handle_clarification(
 
     except SessionNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except InvalidUserResponseError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.post("/topic-shift-choice")
+async def handle_topic_shift_choice(
+    data: TopicShiftChoiceInput,
+    db: Session = Depends(get_database)
+):
+    """
+    **ACTION : TOPIC_SHIFT**
+
+    Gère le choix de l'utilisateur quand un changement de sujet est détecté.
+
+    Choix possibles:
+    - keep_new: Traiter le nouveau problème
+    - keep_old: Revenir au problème original
+    - both_problems: Créer un ticket avec les deux problèmes
+    """
+    try:
+        result = await ticket_workflow.handle_topic_shift_choice(
+            db=db,
+            session_id=data.session_id,
+            choice=data.choice
+        )
+
+        # Retourner le bon type de réponse
+        if result.get("type") == "ticket_created":
+            return TicketCreatedResponse(**result)
+
+        return AnalysisResponse(**result)
+
+    except SessionNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except InvalidUserResponseError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))

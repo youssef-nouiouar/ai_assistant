@@ -1,6 +1,6 @@
 // ============================================================================
 // FICHIER : src/types/workflow.types.ts
-// DESCRIPTION : Types TypeScript pour le workflow
+// DESCRIPTION : Types TypeScript pour le workflow (Phase 2)
 // ============================================================================
 
 export interface CategorySummary {
@@ -19,14 +19,39 @@ export interface SmartSummary {
   clarification_question?: string;
 }
 
+// Phase 2 : Choix guidé cliquable
+export interface GuidedChoice {
+  id: string;
+  label: string;
+  icon: string;
+}
+
+// Phase 3 : Métadonnées des suggestions intelligentes
+export interface SuggestionMetadata {
+  reasoning: string | null;        // Raisonnement transparent pour l'utilisateur
+  should_regenerate: boolean;      // Indique si les suggestions ont été régénérées
+  regeneration_reason: string | null; // Raison de la régénération
+  relevance_score: number;         // Score de pertinence (0-100)
+}
+
 export interface AnalysisResponse {
-  session_id: string;
+  session_id: string | null; // null pour greeting/non_it
   type: string;
-  action: 'auto_validate' | 'confirm_summary' | 'ask_clarification' | 'too_vague';
+  action:
+    | 'auto_validate'
+    | 'confirm_summary'
+    | 'ask_clarification'
+    | 'too_vague'
+    | 'greeting'   // Phase 1
+    | 'non_it'     // Phase 1
+    | 'topic_shift'; // Phase 3
   message: string;
   summary: SmartSummary | null;
   clarification_attempts: number;
-  expires_at: string;
+  guided_choices?: GuidedChoice[] | null;       // Phase 2 : Choix cliquables
+  suggestion_metadata?: SuggestionMetadata | null; // Phase 3 : Raisonnement transparent
+  show_examples?: boolean;                      // Phase 1 : Afficher exemples
+  expires_at: string | null;                    // null pour greeting/non_it
 }
 
 export interface TicketCreatedResponse {
@@ -41,6 +66,7 @@ export interface TicketCreatedResponse {
   created_at: string;
   ready_for_L1: boolean;
   synced_to_glpi?: boolean;
+  escalated_to_human?: boolean; // Phase 1 : escalade humaine
   message: string;
 }
 

@@ -53,6 +53,22 @@ class ClarificationInput(BaseModel):
     selected_choice_id: Optional[str] = Field(None, description="ID du choix guidé sélectionné")
 
 
+class TopicShiftChoiceInput(BaseModel):
+    """Choix de l'utilisateur suite à un changement de sujet détecté"""
+    session_id: str = Field(..., description="ID de la session topic_shift")
+    choice: str = Field(
+        ...,
+        description="Choix: 'keep_new', 'keep_old', ou 'both_problems'"
+    )
+
+    @validator('choice')
+    def validate_choice(cls, v):
+        valid_choices = ["keep_new", "keep_old", "both_problems"]
+        if v not in valid_choices:
+            raise ValueError(f"Choix invalide. Options: {', '.join(valid_choices)}")
+        return v
+
+
 # ========================================================================
 # OUTPUT SCHEMAS (Flexibles pour gérer None)
 # ========================================================================
@@ -85,11 +101,20 @@ class GuidedChoiceSchema(BaseModel):
     icon: str = ""
 
 
+class SuggestionMetadata(BaseModel):
+    """Métadonnées des suggestions intelligentes"""
+    reasoning: Optional[str] = None  # Raisonnement transparent pour l'utilisateur
+    should_regenerate: bool = False  # Indique si les suggestions ont été régénérées
+    regeneration_reason: Optional[str] = None  # Raison de la régénération
+    relevance_score: float = 100.0  # Score de pertinence (0-100)
+
+
 class AnalysisResponse(BaseModel):
     """
     Réponse après analyse (flexible)
 
     Phase 2 : Ajout de guided_choices et show_examples
+    Phase 3 : Ajout de suggestion_metadata pour raisonnement transparent
     """
     session_id: Optional[str] = None  # None pour greeting/non_it
     type: str = "smart_summary"
@@ -99,6 +124,7 @@ class AnalysisResponse(BaseModel):
     clarification_questions: Optional[List[str]] = None  # Questions ciblées
     clarification_attempts: int = 0  # Nombre de tentatives
     guided_choices: Optional[List[GuidedChoiceSchema]] = None  # Phase 2 : Choix cliquables
+    suggestion_metadata: Optional[SuggestionMetadata] = None  # Phase 3 : Raisonnement transparent
     show_examples: Optional[bool] = None  # Phase 1 : Afficher exemples
     expires_at: Optional[str] = None  # None pour greeting/non_it
 

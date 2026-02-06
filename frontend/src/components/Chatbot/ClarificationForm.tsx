@@ -4,8 +4,9 @@
 // ============================================================================
 
 import { useState } from 'react';
-import { GuidedChoice } from '../../types/workflow.types';
+import { GuidedChoice, SuggestionMetadata } from '../../types/workflow.types';
 import { GuidedChoiceButtons } from './GuidedChoiceButtons';
+import { ReasoningBox } from './ReasoningBox';
 
 // Icons inline SVG
 const QuestionIcon = () => (
@@ -33,6 +34,7 @@ interface ClarificationFormProps {
   onSubmit: (response: string, choiceId?: string) => void;
   isLoading: boolean;
   guidedChoices?: GuidedChoice[] | null; // Phase 2 : Choix cliquables
+  suggestionMetadata?: SuggestionMetadata | null; // Phase 3 : Raisonnement transparent
 }
 
 export const ClarificationForm: React.FC<ClarificationFormProps> = ({
@@ -42,6 +44,7 @@ export const ClarificationForm: React.FC<ClarificationFormProps> = ({
   onSubmit,
   isLoading,
   guidedChoices,
+  suggestionMetadata,
 }) => {
   const [response, setResponse] = useState('');
   const [showTextInput, setShowTextInput] = useState(false);
@@ -106,6 +109,11 @@ export const ClarificationForm: React.FC<ClarificationFormProps> = ({
               </span>
             </div>
           </div>
+
+          {/* Phase 3: Raisonnement transparent */}
+          {suggestionMetadata?.reasoning && !showTextInput && (
+            <ReasoningBox metadata={suggestionMetadata} className="mb-4" />
+          )}
 
           {/* Phase 2: Choix guidés cliquables */}
           {hasGuidedChoices && !showTextInput && (
