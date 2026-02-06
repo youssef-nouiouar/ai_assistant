@@ -17,7 +17,34 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  timeout: 60000, // 60 secondes timeout (LLM peut être lent)
 });
+
+// Intercepteur pour retry automatique sur erreurs réseau
+api.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const config = error.config;
+
+    // Ne pas retry si déjà fait ou si ce n'est pas une erreur réseau/timeout
+    if (config._retryCount >= 2) {
+      return Promise.reject(error);
+    }
+
+    // Retry sur erreur réseau ou timeout
+    if (!error.response || error.code === 'ECONNABORTED') {
+      config._retryCount = (config._retryCount || 0) + 1;
+      console.log(`Retrying request (attempt ${config._retryCount})...`);
+
+      // Attendre un peu avant de retry
+      await new Promise((resolve) => setTimeout(resolve, 1000 * config._retryCount));
+
+      return api(config);
+    }
+
+    return Promise.reject(error);
+  }
+);
 
 export class TicketWorkflowAPI {
   static async analyzeMessage(
@@ -80,6 +107,25 @@ export class TicketWorkflowAPI {
         session_id: sessionId,
         clarification_response: clarificationResponse,
         selected_choice_id: selectedChoiceId,
+      });
+      return response.data;
+    } catch (error) {
+      this.handleError(error);
+      throw error;
+    }
+  }
+
+  /**
+   * Gère le choix de l'utilisateur suite à un changement de sujet détecté
+   */
+  static async handleTopicShiftChoice(
+    sessionId: string,
+    choice: 'keep_new' | 'keep_old' | 'both_problems'
+  ): Promise<AnalysisResponse> {
+    try {
+      const response = await api.post<AnalysisResponse>('/topic-shift-choice', {
+        session_id: sessionId,
+        choice,
       });
       return response.data;
     } catch (error) {

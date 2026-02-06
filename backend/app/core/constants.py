@@ -1,9 +1,10 @@
 # ============================================================================
 # FICHIER : backend/app/core/constants.py
-# DESCRIPTION : Constantes (Version Corrigée)
+# DESCRIPTION : Constantes (Version Professionnelle avec Variété)
 # ============================================================================
 
 from typing import Dict, List
+import random
 
 # ========================================================================
 # SEUILS DE CONFIANCE
@@ -22,6 +23,7 @@ class ConfidenceThresholds:
 
 SESSION_EXPIRATION_MINUTES = 30  # Session expire après 30 minutes
 MAX_CLARIFICATION_ATTEMPTS = 3  # Maximum 3 tentatives de clarification
+MAX_CONVERSATION_TURNS = 6  # Maximum 6 échanges par conversation (sécurité)
 
 
 # ========================================================================
@@ -54,61 +56,135 @@ class ModifiableFields:
 # ========================================================================
 
 class Messages:
-    """Messages affichés à l'utilisateur (externalisés)"""
+    """
+    Messages affichés à l'utilisateur - Version Professionnelle
+
+    AMÉLIORATIONS:
+    - ✅ Messages plus courts (max 2 phrases + 1 question)
+    - ✅ Variations multiples pour éviter les répétitions
+    - ✅ Méthode get() pour sélection aléatoire
+    """
+
+    # ================================================================
+    # AUTO-VALIDATE (Confiance >= 98%)
+    # ================================================================
+    AUTO_VALIDATE_VARIATIONS = [
+        "✅ **J'ai bien compris votre demande.**\n\n{summary}\n\nRépondez **\"ok\"** pour créer le ticket.",
+        "✅ **Voici mon analyse.**\n\n{summary}\n\nConfirmez avec **\"oui\"** ou **\"ok\"**.",
+        "✅ **Récapitulatif de votre problème :**\n\n{summary}\n\nDites **\"ok\"** si c'est correct.",
+    ]
+
+    # ================================================================
+    # CONFIRM_SUMMARY (Confiance 70-98%)
+    # ================================================================
+    CONFIRM_SUMMARY_VARIATIONS = [
+        "🤔 **Voici ce que j'ai compris :**\n\n{summary}\n\nVous pouvez **confirmer** ou **modifier**.",
+        "📝 **Mon analyse :**\n\n{summary}\n\nC'est correct ? Sinon, modifiez le titre ou les symptômes.",
+        "🔍 **J'ai identifié ceci :**\n\n{summary}\n\n**Confirmez** ou ajustez les détails.",
+    ]
+
+    # ================================================================
+    # ASK_CLARIFICATION (Confiance 40-70%)
+    # Messages plus courts, 1 question à la fois
+    # ================================================================
+    ASK_CLARIFICATION_VARIATIONS = [
+        "🤔 **J'ai besoin d'une précision.**\n\n{missing_info_list}",
+        "❓ **Pour mieux vous aider :**\n\n{missing_info_list}",
+        "🔍 **Une question pour affiner :**\n\n{missing_info_list}",
+        "💡 **Petit détail manquant :**\n\n{missing_info_list}",
+    ]
+
+    # ================================================================
+    # TOO_VAGUE (Confiance < 40%) - Messages courts
+    # ================================================================
+    TOO_VAGUE_VARIATIONS = [
+        "🤔 **Pouvez-vous préciser ?**\n\nQuel appareil ou application est concerné ?",
+        "❓ **J'ai besoin de détails.**\n\nQuel est le problème exact ?",
+        "🔍 **C'est un peu vague.**\n\nPouvez-vous décrire ce qui ne fonctionne pas ?",
+        "💭 **Je veux vous aider !**\n\nDites-moi quel équipement pose problème.",
+    ]
+
+    # ================================================================
+    # TICKET CREATED - Avec timeline et prochaines étapes
+    # ================================================================
+    TICKET_CREATED_VARIATIONS = [
+        (
+            "✅ **Ticket {ticket_number} créé !**\n\n"
+            "📋 {category} • 🎯 {priority}\n\n"
+            "⏱️ Un technicien traitera votre demande sous 2h max."
+        ),
+        (
+            "✅ **C'est noté ! Ticket : {ticket_number}**\n\n"
+            "📋 {category} • 🎯 {priority}\n\n"
+            "📧 Vous recevrez une notification dès qu'un technicien prend en charge."
+        ),
+        (
+            "✅ **Votre ticket {ticket_number} est enregistré.**\n\n"
+            "📋 {category} • 🎯 {priority}\n\n"
+            "🔔 Suivi par email. Temps de réponse estimé : 2h."
+        ),
+    ]
+
+    # ================================================================
+    # Anciens messages (compatibilité)
+    # ================================================================
+    AUTO_VALIDATE_MESSAGE = AUTO_VALIDATE_VARIATIONS[0]
+    CONFIRM_SUMMARY_MESSAGE = CONFIRM_SUMMARY_VARIATIONS[0]
+    ASK_CLARIFICATION_MESSAGE = ASK_CLARIFICATION_VARIATIONS[0]
+    TOO_VAGUE_MESSAGE = TOO_VAGUE_VARIATIONS[0]
+    TICKET_CREATED_MESSAGE = TICKET_CREATED_VARIATIONS[0]
+
+    @classmethod
+    def get(cls, message_type: str, **kwargs) -> str:
+        """
+        Retourne un message avec variation aléatoire.
+
+        Usage:
+            Messages.get("auto_validate", summary="...")
+            Messages.get("ticket_created", ticket_number="TKT-123", category="Réseau", priority="HIGH")
+        """
+        variations_map = {
+            "auto_validate": cls.AUTO_VALIDATE_VARIATIONS,
+            "confirm_summary": cls.CONFIRM_SUMMARY_VARIATIONS,
+            "ask_clarification": cls.ASK_CLARIFICATION_VARIATIONS,
+            "too_vague": cls.TOO_VAGUE_VARIATIONS,
+            "ticket_created": cls.TICKET_CREATED_VARIATIONS,
+        }
+
+        variations = variations_map.get(message_type, [])
+        if not variations:
+            return f"Message type '{message_type}' not found"
+
+        template = random.choice(variations)
+        return template.format(**kwargs) if kwargs else template
     
-    # Auto-validate
-    AUTO_VALIDATE_MESSAGE = (
-        "✅ **Voici ce que j'ai compris de votre demande :**\n\n"
-        "{summary}\n\n"
-        "Si c'est correct, répondez simplement **\"ok\"**, **\"oui\"**, ou **\"d'accord\"** pour créer le ticket."
+    # Erreurs (améliorées pour être plus empathiques et utiles)
+    ERROR_SESSION_NOT_FOUND = (
+        "⚠️ **Oups, votre session a expiré.**\n\n"
+        "Pas de souci ! Décrivez à nouveau votre problème et je vous aiderai."
     )
-    
-    # Confirm summary
-    CONFIRM_SUMMARY_MESSAGE = (
-        "🤔 **Voici ce que j'ai compris. Pouvez-vous vérifier ?**\n\n"
-        "{summary}\n\n"
-        "Vous pouvez **confirmer** ou **modifier le titre/symptômes** uniquement.\n"
-        "⚠️ La priorité et la catégorie sont déterminées automatiquement."
+    ERROR_SESSION_ALREADY_USED = (
+        "✅ **Cette demande a déjà été traitée.**\n\n"
+        "Si vous avez un nouveau problème, décrivez-le ci-dessous."
     )
-    
-    # Ask clarification (avec détails des infos manquantes)
-    ASK_CLARIFICATION_MESSAGE = (
-        "❓ **J'ai besoin de plus d'informations pour bien comprendre :**\n\n"
-        "{missing_info_list}\n\n"
-        "Pouvez-vous préciser ces points ?"
+    ERROR_INVALID_RESPONSE = (
+        "🤔 **Je n'ai pas bien compris votre réponse.**\n\n"
+        "Pour créer le ticket, répondez simplement **\"ok\"**, **\"oui\"** ou **\"confirmer\"**."
     )
-    
-    # Message trop vague
-    TOO_VAGUE_MESSAGE = (
-        "😕 **Votre message est trop vague pour que je puisse vous aider.**\n\n"
-        "Pourriez-vous décrire votre problème de manière plus détaillée ?\n"
-        "Par exemple :\n"
-        "• Quel appareil ou application est concerné ?\n"
-        "• Quel est le problème exact ?\n"
-        "• Depuis quand cela se produit-il ?"
+    ERROR_AI_ANALYSIS = (
+        "😕 **Désolé, j'ai rencontré un problème technique.**\n\n"
+        "Veuillez réessayer dans quelques instants. Si le problème persiste, "
+        "un technicien sera notifié automatiquement."
     )
-    
-    # Trop de tentatives (escalade humaine)
-    MAX_ATTEMPTS_REACHED = (
-        "✅ **Pas de souci !**\n\n"
-        "Je vais créer un ticket de support et un technicien vous contactera rapidement pour clarifier votre problème. "
-        "Vous recevrez une notification dès que quelqu'un sera disponible pour vous aider."
+    ERROR_INVALID_MODIFICATION = (
+        "⚠️ **Modification non autorisée.**\n\n"
+        "Vous pouvez modifier uniquement le **titre** et les **symptômes**.\n"
+        "La priorité et la catégorie sont déterminées automatiquement pour assurer un traitement optimal."
     )
-    
-    # Ticket créé
-    TICKET_CREATED_MESSAGE = (
-        "✅ **Ticket {ticket_number} créé avec succès !**\n\n"
-        "📋 Catégorie : {category}\n"
-        "🎯 Priorité : {priority}\n\n"
-        "🔍 Recherche de solutions en cours..."
+    ERROR_CLARIFICATION_FAILED = (
+        "😕 **Désolé, je n'ai pas pu traiter votre précision.**\n\n"
+        "Veuillez réessayer. Si le problème persiste, décrivez votre problème de manière plus détaillée."
     )
-    
-    # Erreurs
-    ERROR_SESSION_NOT_FOUND = "⚠️ Session expirée ou invalide. Veuillez recommencer."
-    ERROR_SESSION_ALREADY_USED = "⚠️ Cette session a déjà été utilisée pour créer un ticket."
-    ERROR_INVALID_RESPONSE = "❌ Je n'ai pas compris votre réponse. Répondez simplement **\"ok\"** pour confirmer."
-    ERROR_AI_ANALYSIS = "❌ Erreur lors de l'analyse de votre message. Veuillez réessayer."
-    ERROR_INVALID_MODIFICATION = "⚠️ Vous ne pouvez modifier que le titre et les symptômes. La priorité et la catégorie sont déterminées automatiquement."
 
 
 # ========================================================================
@@ -166,3 +242,133 @@ POSITIVE_KEYWORDS = [
 NEGATIVE_KEYWORDS = [
     "non", "no", "pas", "jamais", "incorrect", "faux", "erreur"
 ]
+
+
+# ========================================================================
+# DÉTECTION DE SALUTATIONS ET MESSAGES NON-IT (PHASE 1)
+# ========================================================================
+
+class MessageDetection:
+    """
+    Détection de messages spéciaux nécessitant une réponse contextuelle
+    """
+
+    # Salutations simples (sans contenu IT)
+    GREETING_KEYWORDS = [
+        "bonjour", "hello", "salut", "bonsoir", "hey",
+        "hi", "coucou", "yo", "bjr", "slt"
+    ]
+
+    # Messages hors sujet (non-IT)
+    NON_IT_KEYWORDS = [
+        "météo", "meteo", "recette", "blague", "heure",
+        "actualité", "actualite", "news", "sport", "cuisine"
+    ]
+
+    @classmethod
+    def is_greeting_only(cls, message: str) -> bool:
+        """Détecte si le message est uniquement une salutation"""
+        message_lower = message.lower().strip()
+        words = message_lower.split()
+
+        # Si court (<=3 mots) et contient une salutation
+        if len(words) <= 3:
+            return any(greeting in message_lower for greeting in cls.GREETING_KEYWORDS)
+
+        return False
+
+    @classmethod
+    def is_non_it_message(cls, message: str) -> bool:
+        """Détecte si le message est hors sujet (non-IT)"""
+        message_lower = message.lower()
+        return any(keyword in message_lower for keyword in cls.NON_IT_KEYWORDS)
+
+
+class GreetingMessages:
+    """
+    Messages de réponse aux salutations et cas spéciaux
+    Version professionnelle avec variations et messages courts
+    """
+
+    # ================================================================
+    # GREETING - Messages courts avec exemples
+    # ================================================================
+    GREETING_VARIATIONS = [
+        (
+            "👋 **Bonjour !** Je suis votre assistant IT.\n\n"
+            "Décrivez votre problème : PC, réseau, imprimante, logiciel..."
+        ),
+        (
+            "👋 **Salut !** Comment puis-je vous aider aujourd'hui ?\n\n"
+            "Ex: \"Mon PC est lent\", \"Pas d'Internet\", \"Imprimante en panne\""
+        ),
+        (
+            "👋 **Hello !** Je suis là pour vos soucis informatiques.\n\n"
+            "Dites-moi ce qui ne va pas !"
+        ),
+    ]
+
+    GREETING_RESPONSE = GREETING_VARIATIONS[0]  # Compatibilité
+
+    # ================================================================
+    # NON-IT - Message court et poli
+    # ================================================================
+    NON_IT_VARIATIONS = [
+        "😊 **Je suis spécialisé IT uniquement.**\n\nUn problème informatique ? Je suis là !",
+        "🤖 **Je ne gère que les soucis informatiques.**\n\nPC, réseau, logiciels... c'est mon domaine !",
+        "💻 **Mon expertise : l'informatique.**\n\nPour autre chose, je ne peux pas aider. Un souci IT ?",
+    ]
+
+    NON_IT_RESPONSE = NON_IT_VARIATIONS[0]  # Compatibilité
+
+    # ================================================================
+    # MAX ATTEMPTS - Escalade professionnelle avec timeline
+    # ================================================================
+    MAX_ATTEMPTS_VARIATIONS = [
+        (
+            "✅ **Ticket {ticket_number} créé !**\n\n"
+            "⏱️ Un technicien vous contactera sous **30 min**.\n\n"
+            "📧 Confirmation envoyée par email.\n"
+            "☎️ Urgence ? Appelez le support direct."
+        ),
+        (
+            "📋 **Votre demande est enregistrée : {ticket_number}**\n\n"
+            "Un technicien prendra contact rapidement (< 30 min).\n\n"
+            "💡 Préparez une capture d'écran si vous voyez une erreur."
+        ),
+        (
+            "✅ **C'est noté ! Ticket : {ticket_number}**\n\n"
+            "🔔 Notification envoyée à l'équipe technique.\n"
+            "⏱️ Temps de réponse estimé : 30 minutes max."
+        ),
+    ]
+
+    MAX_ATTEMPTS_FRIENDLY = MAX_ATTEMPTS_VARIATIONS[0]  # Compatibilité
+
+    # ================================================================
+    # CONVERSATION LIMIT - Message court
+    # ================================================================
+    CONVERSATION_LIMIT_VARIATIONS = [
+        "⏱️ **Conversation longue.** Résumez votre problème ou je crée un ticket pour vous.",
+        "🔄 **On tourne en rond.** Voulez-vous qu'un technicien vous appelle directement ?",
+        "💬 **Beaucoup d'échanges !** Je propose de créer un ticket pour clarifier avec un humain.",
+    ]
+
+    CONVERSATION_LIMIT_MESSAGE = CONVERSATION_LIMIT_VARIATIONS[0]  # Compatibilité
+
+    @classmethod
+    def get(cls, message_type: str, **kwargs) -> str:
+        """Retourne un message avec variation aléatoire"""
+        variations_map = {
+            "greeting": cls.GREETING_VARIATIONS,
+            "non_it": cls.NON_IT_VARIATIONS,
+            "max_attempts": cls.MAX_ATTEMPTS_VARIATIONS,
+            "conversation_limit": cls.CONVERSATION_LIMIT_VARIATIONS,
+        }
+
+        variations = variations_map.get(message_type, [])
+        if not variations:
+            return f"Message type '{message_type}' not found"
+
+        template = random.choice(variations)
+        return template.format(**kwargs) if kwargs else template

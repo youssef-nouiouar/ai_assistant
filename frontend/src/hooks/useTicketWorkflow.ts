@@ -11,6 +11,7 @@ import {
   ChatMessage,
   ModificationData,
   GuidedChoice,
+  SuggestionMetadata,
 } from '../types/workflow.types';
 
 export const useTicketWorkflow = () => {
@@ -20,6 +21,7 @@ export const useTicketWorkflow = () => {
   const [currentAction, setCurrentAction] = useState<string | null>(null);
   const [currentSummary, setCurrentSummary] = useState<any>(null);
   const [currentGuidedChoices, setCurrentGuidedChoices] = useState<GuidedChoice[] | null>(null); // Phase 2
+  const [currentSuggestionMetadata, setCurrentSuggestionMetadata] = useState<SuggestionMetadata | null>(null); // Phase 3
   const [error, setError] = useState<string | null>(null);
 
   const addMessage = useCallback(
@@ -55,6 +57,7 @@ export const useTicketWorkflow = () => {
           setCurrentAction(null);
           setCurrentSummary(null);
           setCurrentGuidedChoices(null);
+          setCurrentSuggestionMetadata(null);
           return response;
         }
 
@@ -65,6 +68,7 @@ export const useTicketWorkflow = () => {
           setCurrentAction(null);
           setCurrentSummary(null);
           setCurrentGuidedChoices(null);
+          setCurrentSuggestionMetadata(null);
           return response;
         }
 
@@ -73,6 +77,7 @@ export const useTicketWorkflow = () => {
         setCurrentAction(response.action);
         setCurrentSummary(response.summary);
         setCurrentGuidedChoices(response.guided_choices || null); // Phase 2
+        setCurrentSuggestionMetadata(response.suggestion_metadata || null); // Phase 3
 
         const clarificationQuestion = response.summary?.clarification_question;
         addMessage('bot', response.message, {
@@ -82,14 +87,27 @@ export const useTicketWorkflow = () => {
           clarificationQuestion: clarificationQuestion,
           attempts: response.clarification_attempts,
           guidedChoices: response.guided_choices, // Phase 2
+          suggestionMetadata: response.suggestion_metadata, // Phase 3
         });
 
         return response;
       } catch (err: any) {
-        const errorMsg =
-          err.response?.data?.detail || 'Erreur lors de l\'analyse du message';
+        // Amélioration: messages d'erreur plus clairs selon le type d'erreur
+        let errorMsg = err.response?.data?.detail;
+
+        if (!errorMsg) {
+          // Erreur réseau ou timeout
+          if (!err.response) {
+            errorMsg = '🌐 Problème de connexion. Vérifiez votre réseau et réessayez.';
+          } else if (err.response.status === 500) {
+            errorMsg = '😕 Problème technique temporaire. Veuillez réessayer dans quelques instants.';
+          } else {
+            errorMsg = 'Erreur lors de l\'analyse du message';
+          }
+        }
+
         setError(errorMsg);
-        addMessage('system', `❌ ${errorMsg}`);
+        addMessage('system', errorMsg);
         throw err;
       } finally {
         setIsLoading(false);
@@ -193,6 +211,7 @@ export const useTicketWorkflow = () => {
           setCurrentAction(null);
           setCurrentSummary(null);
           setCurrentGuidedChoices(null);
+          setCurrentSuggestionMetadata(null);
           return response;
         }
 
@@ -200,6 +219,7 @@ export const useTicketWorkflow = () => {
         setCurrentAction(response.action);
         setCurrentSummary(response.summary);
         setCurrentGuidedChoices(response.guided_choices || null); // Phase 2
+        setCurrentSuggestionMetadata(response.suggestion_metadata || null); // Phase 3
 
         const clarificationQuestion = response.summary?.clarification_question;
         addMessage('bot', response.message, {
@@ -209,14 +229,96 @@ export const useTicketWorkflow = () => {
           clarificationQuestion: clarificationQuestion,
           attempts: response.clarification_attempts,
           guidedChoices: response.guided_choices, // Phase 2
+          suggestionMetadata: response.suggestion_metadata, // Phase 3
+        });
+
+        return response;
+      } catch (err: any) {
+        // Amélioration: messages d'erreur plus clairs selon le code HTTP
+        let errorMsg = err.response?.data?.detail;
+
+        if (!errorMsg) {
+          // Erreur réseau ou timeout
+          if (!err.response) {
+            errorMsg = '🌐 Problème de connexion. Vérifiez votre réseau et réessayez.';
+          } else if (err.response.status === 404) {
+            errorMsg = '⚠️ Session expirée. Décrivez à nouveau votre problème.';
+          } else if (err.response.status === 500) {
+            errorMsg = '😕 Problème technique temporaire. Veuillez réessayer.';
+          } else {
+            errorMsg = 'Erreur lors de la clarification';
+          }
+        }
+
+        setError(errorMsg);
+        addMessage('system', errorMsg);
+        throw err;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [currentSessionId, addMessage]
+  );
+
+  /**
+   * Gère le choix de l'utilisateur suite à un changement de sujet détecté
+   */
+  const handleTopicShiftChoice = useCallback(
+    async (choice: 'keep_new' | 'keep_old' | 'both_problems') => {
+      if (!currentSessionId) {
+        setError('Session expirée');
+        return;
+      }
+
+      setIsLoading(true);
+      setError(null);
+
+      // Message utilisateur correspondant au choix
+      const choiceLabels = {
+        keep_new: 'Je veux traiter le nouveau problème',
+        keep_old: 'Je reviens au problème initial',
+        both_problems: "J'ai les deux problèmes",
+      };
+      addMessage('user', choiceLabels[choice]);
+
+      try {
+        const response = await TicketWorkflowAPI.handleTopicShiftChoice(
+          currentSessionId,
+          choice
+        );
+
+        // Gérer ticket_created
+        if (response.type === 'ticket_created') {
+          addMessage('bot', (response as any).message, { ticket: response });
+          setCurrentSessionId(null);
+          setCurrentAction(null);
+          setCurrentSummary(null);
+          setCurrentGuidedChoices(null);
+          setCurrentSuggestionMetadata(null);
+          return response;
+        }
+
+        // Workflow normal
+        setCurrentSessionId(response.session_id);
+        setCurrentAction(response.action);
+        setCurrentSummary(response.summary);
+        setCurrentGuidedChoices(response.guided_choices || null);
+        setCurrentSuggestionMetadata(response.suggestion_metadata || null);
+
+        addMessage('bot', response.message, {
+          sessionId: response.session_id,
+          action: response.action,
+          summary: response.summary,
+          guidedChoices: response.guided_choices,
+          suggestionMetadata: response.suggestion_metadata,
         });
 
         return response;
       } catch (err: any) {
         const errorMsg =
-          err.response?.data?.detail || 'Erreur lors de la clarification';
+          err.response?.data?.detail || 'Erreur lors du traitement du choix';
         setError(errorMsg);
-        addMessage('system', `❌ ${errorMsg}`);
+        addMessage('system', errorMsg);
         throw err;
       } finally {
         setIsLoading(false);
@@ -231,6 +333,7 @@ export const useTicketWorkflow = () => {
     setCurrentAction(null);
     setCurrentSummary(null);
     setCurrentGuidedChoices(null);
+    setCurrentSuggestionMetadata(null);
     setError(null);
   }, []);
 
@@ -241,11 +344,13 @@ export const useTicketWorkflow = () => {
     currentAction,
     currentSummary,
     currentGuidedChoices, // Phase 2
+    currentSuggestionMetadata, // Phase 3
     error,
     analyzeMessage,
     autoValidate,
     confirmSummary,
     clarify,
+    handleTopicShiftChoice, // NOUVEAU
     reset,
   };
 };
