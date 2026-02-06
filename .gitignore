@@ -1,6 +1,6 @@
 # Ignore environment files containing secrets
-backend/.env
-*.env
+# backend/.env
+# *.env
 
 # Node
 frontend/node_modules/
@@ -17,3 +17,7 @@ __pycache__/
 
 # Office temporary files
 ~$*
+
+# Ignore Python cache
+__pycache__/
+*.pyc
