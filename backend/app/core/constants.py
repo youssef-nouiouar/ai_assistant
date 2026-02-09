@@ -13,7 +13,7 @@ import random
 class ConfidenceThresholds:
     AUTO_VALIDATE = 0.98  # >= 94% : Validation automatique
     CONFIRM_SUMMARY = 0.7 # 50-94% : Demander confirmation
-    ASK_CLARIFICATION = 0.4  # 20-60% : Poser questions
+    ASK_CLARIFICATION = 0.35  # 20-60% : Poser questions
     TOO_VAGUE = 0.00  # < 20% : Message trop vague, escalade humaine
 
 

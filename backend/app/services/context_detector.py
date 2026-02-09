@@ -205,6 +205,16 @@ class ContextDetector:
         - new_context: str - Contexte de la clarification
         - recommendation: str - "merge", "replace", ou "ask_user"
         """
+        # GUARD: Réponse courte = réponse à la question, PAS un changement de sujet
+        # Ex: "mon ordinateur", "depuis ce matin", "bureau 301"
+        if len(clarification_response.split()) < 10:
+            return {
+                "is_topic_shift": False,
+                "original_context": cls.detect_context(original_message),
+                "new_context": None,
+                "recommendation": "merge"
+            }
+
         original_context = cls.detect_context(original_message)
         new_context = cls.detect_context(clarification_response)
 
@@ -240,12 +250,16 @@ class ContextDetector:
         compatible_contexts = {
             ("02-Messagerie", "03-Reseau-Internet"),  # Email peut être lié au réseau
             ("03-Reseau-Internet", "02-Messagerie"),
+            ("02-Messagerie", "04-Postes-travail"),  # Email sur un poste spécifique
+            ("04-Postes-travail", "02-Messagerie"),
             ("05-Applications", "04-Postes-travail"),  # App peut être liée au poste
             ("04-Postes-travail", "05-Applications"),
             ("05-Applications", "08-Materiel"),  # App peut être liée au matériel
             ("08-Materiel", "05-Applications"),
             ("01-Acces-Authentification", "03-Reseau-Internet"),  # Accès lié au réseau
             ("03-Reseau-Internet", "01-Acces-Authentification"),
+            ("01-Acces-Authentification", "05-Applications"),  # Accès à une application
+            ("05-Applications", "01-Acces-Authentification"),
         }
 
         if (original_context, new_context) in compatible_contexts:

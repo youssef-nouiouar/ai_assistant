@@ -121,7 +121,7 @@ class AnalysisResponse(BaseModel):
     action: str  # auto_validate, confirm_summary, ask_clarification, too_vague, greeting, non_it
     message: str
     summary: Optional[SmartSummary] = None  # Peut être None si too_vague
-    clarification_questions: Optional[List[str]] = None  # Questions ciblées
+    clarification_question: Optional[str] = None  # Question ciblée
     clarification_attempts: int = 0  # Nombre de tentatives
     guided_choices: Optional[List[GuidedChoiceSchema]] = None  # Phase 2 : Choix cliquables
     suggestion_metadata: Optional[SuggestionMetadata] = None  # Phase 3 : Raisonnement transparent

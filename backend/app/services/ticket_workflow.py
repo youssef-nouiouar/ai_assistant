@@ -3,7 +3,6 @@
 # DESCRIPTION : Service Workflow (Version Corrigée)
 # ============================================================================
 
-from requests import session
 from sqlalchemy.orm import Session
 from typing import Dict, List, Optional
 from datetime import datetime, timedelta, timezone
@@ -164,6 +163,7 @@ class TicketWorkflow:
                     attempts=attempts,
                     clarification_question=analysis.get("clarification_question"),
                     previous_choice=previous_choice,
+                    categories=categories,
                 )
             
             # Déterminer l'action
@@ -223,34 +223,6 @@ class TicketWorkflow:
                 attempts=attempts
             )
 
-            # Phase 3: Suggestions intelligentes avec raisonnement
-            guided_choices = None
-            suggestion_metadata = None
-
-            if action == "ask_clarification":
-                # Créer le contexte pour le SuggestionManager
-                suggestion_context = SuggestionContext(
-                    user_input=message,
-                    previous_inputs=[session.original_message] if parent_session_id else [],
-                    detected_category=detected_context,
-                    confidence_score=confidence,
-                    clarification_attempt=attempts,
-                    previous_choice_id=previous_choice,
-                    ai_clarification_question=analysis.get("clarification_question"),
-                    db_categories=categories,
-                )
-
-                # Obtenir des suggestions intelligentes avec raisonnement
-                suggestion_response = suggestion_manager.get_smart_suggestions(suggestion_context)
-
-                guided_choices = suggestion_response.suggestions
-                suggestion_metadata = {
-                    "reasoning": suggestion_response.reasoning,
-                    "should_regenerate": suggestion_response.should_regenerate,
-                    "regeneration_reason": suggestion_response.regeneration_reason,
-                    "relevance_score": suggestion_response.relevance_score
-                }
-
             return {
                 "session_id": session.id,
                 "type": "smart_summary",
@@ -258,8 +230,8 @@ class TicketWorkflow:
                 "message": message_to_user,
                 "summary": smart_summary,
                 "clarification_attempts": attempts,
-                "guided_choices": guided_choices,
-                "suggestion_metadata": suggestion_metadata,
+                "guided_choices": None,
+                "suggestion_metadata": None,
                 "expires_at": session.expires_at.isoformat()
             }
             
@@ -279,6 +251,7 @@ class TicketWorkflow:
         attempts: int,
         clarification_question: Optional[str] = None,
         previous_choice: Optional[str] = None,
+        categories: Optional[List[Dict]] = None,
     ) -> Dict:
         """
         Gère le cas où le message est trop vague (confidence < 30%)
@@ -313,7 +286,7 @@ class TicketWorkflow:
             clarification_attempt=attempts,
             previous_choice_id=previous_choice,
             ai_clarification_question=clarification_question,
-            db_categories=self._get_categories(db),
+            db_categories=categories or self._get_categories(db),
         )
 
         # Obtenir des suggestions intelligentes avec raisonnement
@@ -969,7 +942,7 @@ class TicketWorkflow:
                     user_email=user_email
                 )
                 
-                t = glpi_ticket.get("id")
+                glpi_ticket_id = glpi_ticket.get("id")
                 glpi_sync_at = utc_now()
                 
                 structured_logger.log_error(
@@ -1009,29 +982,15 @@ class TicketWorkflow:
             user_message=original_message,
             status="open",
             priority=priority,
-            category_id=None ,#if category_id is str else category_id,
+            category_id=category_id,
             created_by_user_id=user.id if user else None,
-            
-            # IA
-            # ai_analyzed=True,
-            # ai_suggested_category_id=category_id,
             ai_confidence_score=summary.get("category", {}).get("confidence", 0.0),
             ai_extracted_symptoms=symptoms,
-            # ai_analysis_metadata=summary,
-            
-            # Validation
-            # user_validated_summary=True,
             validation_method=validation_method,
-            
-            # Handoff
             ready_for_l1=True,
-            # handoff_to_l1_at=datetime.now(),
-            
-            # GLPI
             glpi_ticket_id=glpi_ticket_id,
             synced_to_glpi=glpi_ticket_id is not None,
             glpi_sync_at=glpi_sync_at,
-            # glpi_status=1 if glpi_ticket_id else None  # 1 = Nouveau
         )
         
         db.add(ticket)
@@ -1072,7 +1031,6 @@ class TicketWorkflow:
             "synced_to_glpi": ticket.synced_to_glpi,
             "message": message
         }
-# funtion moved to utils/ticket_utils.py
     @staticmethod
     def generate_ticket_number(db):
         """

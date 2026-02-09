@@ -100,6 +100,7 @@ export const ChatbotInterface = () => {
     autoValidate,
     confirmSummary,
     clarify,
+    handleTopicShiftChoice,
     reset,
   } = useTicketWorkflow();
 
@@ -149,9 +150,13 @@ export const ChatbotInterface = () => {
     setShowModificationForm(false);
   };
 
-  // Gérer clarification (Phase 3: passe aussi le choiceId)
+  // Gérer clarification (Phase 3: passe aussi le choiceId, route topic_shift)
   const handleClarification = async (response: string, choiceId?: string) => {
-    await clarify(response, choiceId);
+    if (currentAction === 'topic_shift' && choiceId) {
+      await handleTopicShiftChoice(choiceId as 'keep_new' | 'keep_old' | 'both_problems');
+    } else {
+      await clarify(response, choiceId);
+    }
   };
 
   // Clic sur exemple rapide
@@ -176,7 +181,7 @@ export const ChatbotInterface = () => {
     !isLoading;
 
   const showClarificationForm =
-    (currentAction === 'ask_clarification' || currentAction === 'too_vague') &&
+    (currentAction === 'ask_clarification' || currentAction === 'too_vague' || currentAction === 'topic_shift') &&
     !isLoading;
 
   return (
