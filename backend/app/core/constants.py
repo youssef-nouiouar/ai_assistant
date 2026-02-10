@@ -11,10 +11,18 @@ import random
 # ========================================================================
 
 class ConfidenceThresholds:
-    AUTO_VALIDATE = 0.98  # >= 94% : Validation automatique
-    CONFIRM_SUMMARY = 0.7 # 50-94% : Demander confirmation
-    ASK_CLARIFICATION = 0.35  # 20-60% : Poser questions
-    TOO_VAGUE = 0.00  # < 20% : Message trop vague, escalade humaine
+    """
+    Seuils basés sur le nouveau scoring à 4 critères:
+      1. Spécificité du problème    (0 - 0.35)
+      2. Système affecté identifié  (0 - 0.25)
+      3. Confiance catégorie        (0.05 - 0.25)  ← jamais 0
+      4. Contexte actionnable       (0 - 0.15)
+    Score min = 0.05, max = 1.0
+    """
+    AUTO_VALIDATE = 0.85       # >= 0.85 : Ticket créé directement (problème clair + système identifié + catégorie sûre)
+    CONFIRM_SUMMARY = 0.60     # 0.60-0.85 : On a bien compris, demander confirmation
+    ASK_CLARIFICATION = 0.30   # 0.30-0.60 : Manque des infos clés, poser des questions
+    TOO_VAGUE = 0.05           # < 0.30 : Message trop vague (plancher absolu = 0.05)
 
 
 # ========================================================================

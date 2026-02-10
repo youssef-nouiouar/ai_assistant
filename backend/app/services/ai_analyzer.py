@@ -106,37 +106,123 @@ TENTATIVE DE CLARIFICATION: {clarification_attempt}/3
 
 Donne UNIQUEMENT une réponse JSON.
 
-Pour le champ "confidence_score", calcule un score entre 0.0 et 1.0 basé uniquement
-sur ces critères objectifs :
+Pour le champ "confidence_score", calcule un score entre 0.05 et 1.0 basé sur ces 4 critères:
 
-1. Informations fournies (0 à 0.3 points)
-   - Message long et détaillé (0.3)
-   - Détails moyens (0.2)
-   - Message court ou vague (0.1)
-   - Très peu d'informations (0.0)
+═══════════════════════════════════════════════════════════════════
+1. SPÉCIFICITÉ DU PROBLÈME (0 à 0.35 points)
+═══════════════════════════════════════════════════════════════════
+Évalue la PRÉCISION DIAGNOSTIQUE, PAS la longueur du message.
 
-2. Nombre de symptômes identifiés (0 à 0.2 points)
-   - 3–5 symptômes (0.2)
-   - 2 symptômes (0.1)
-   - 1 symptôme ou moins (0.0)
+  0.35 → Symptôme très spécifique avec identifiant technique
+         Ex: "écran bleu DRIVER_IRQL", "erreur 0x800F081F", "bourrage papier"
 
-3. Complétude de "extracted_info" (0 à 0.3 points)
-   - 4–5 champs remplis (0.3)
-   - 2–3 champs remplis (0.2)
-   - 1 champ rempli (0.1)
-   - 0 champs remplis (0.0)
+  0.30 → Symptôme spécifique et clair
+         Ex: "écran bleu", "page blanche à l'impression", "mot de passe refusé"
 
-4. Correspondance de catégorie (0 à 0.2 points)
-    - Catégorie très claire (0.2)
-    - Catégorie probable (0.1)
-    - Aucune catégorie identifiable (0.0)
+  0.25 → Problème clair mais général
+         Ex: "ne peut pas imprimer", "pas d'accès email", "PC ne démarre plus"
 
-IMPORTANT :
-- Le score final = somme des points (max = 1.0)
-- NE PAS dépasser 1.0
-- Tu dois appliquer ces règles strictement (pas d'intuition).
+  0.15 → Description vague mais direction identifiable
+         Ex: "mon PC est lent", "Outlook rame", "problème de connexion"
+
+  0.05 → Extrêmement vague, impossible à diagnostiquer
+         Ex: "j'ai un problème", "ça marche pas", "besoin d'aide urgent"
+
+═══════════════════════════════════════════════════════════════════
+2. SYSTÈME AFFECTÉ IDENTIFIÉ (0 à 0.25 points)
+═══════════════════════════════════════════════════════════════════
+Peut-on identifier QUEL appareil, application ou service est concerné?
+ATTENTION: NE PAS deviner ou inférer un système non mentionné.
+Seuls les mots EXPLICITES du message comptent.
+
+  0.25 → Appareil + application/service précis NOMMÉS dans le message
+         Ex: "Outlook sur mon PC Dell", "imprimante HP LaserJet étage 3"
+
+  0.20 → Appareil + OS ou contexte précis NOMMÉS
+         Ex: "PC Windows 11", "MacBook Pro du service compta"
+
+  0.15 → Appareil OU application explicitement nommé
+         Ex: "mon imprimante", "Outlook", "Teams", "mon téléphone"
+
+  0.10 → Zone générale mentionnée explicitement
+         Ex: "mon ordinateur", "le réseau", "ma messagerie"
+
+  0.00 → AUCUN appareil, application ou service mentionné dans le message
+         Ex: "j'ai un problème", "ça marche pas", "aide moi", "c'est lent"
+         IMPORTANT: Si le message ne nomme RIEN de concret → 0.00
+
+═══════════════════════════════════════════════════════════════════
+3. CONFIANCE CATÉGORIE (0.05 à 0.25 points) — JAMAIS 0.00
+═══════════════════════════════════════════════════════════════════
+Tu DOIS TOUJOURS suggérer une catégorie. Minimum = 0.05.
+ATTENTION: 0.25 est RARE. Réservé aux cas avec zéro ambiguïté.
+
+  0.25 → Catégorie ÉVIDENTE avec détail technique confirmant
+         Ex: "bourrage papier imprimante" → Matériel (aucune autre possibilité)
+         Ex: "erreur 0x800F sur Windows Update" → Postes-travail (certain)
+         RÈGLE: 0.25 seulement si AUCUNE autre catégorie n'est possible
+
+  0.20 → Catégorie claire, une seule candidate logique
+         Ex: "Outlook ne s'ouvre plus" → Messagerie (très probable)
+         Ex: "problème de connexion internet" → Réseau (très probable)
+
+  0.15 → Catégorie probable mais 1-2 alternatives possibles
+         Ex: "pas d'accès au dossier" → Fichiers-Partages ou Accès?
+         Ex: "PC lent" → Postes-travail ou Applications?
+
+  0.05 → Incertain, 3+ catégories possibles, choix par défaut
+         Ex: "ça marche pas" → impossible à catégoriser
+         Ex: "j'ai un problème" → aucune direction
+
+═══════════════════════════════════════════════════════════════════
+4. CONTEXTE ACTIONNABLE (0 à 0.15 points)
+═══════════════════════════════════════════════════════════════════
+A-t-on assez de détails pour AGIR immédiatement?
+ATTENTION: Seules les informations EXPLICITES comptent, pas les déductions.
+
+  0.15 → Code erreur, message exact, ou étapes de reproduction
+         Ex: "erreur 0x80070005", "quand je clique sur Envoyer ça plante"
+
+  0.10 → Contexte temporel PRÉCIS ou déclencheur identifié
+         Ex: "depuis la mise à jour de lundi", "après redémarrage", "depuis ce matin"
+
+  0.05 → Contexte temporel VAGUE
+         Ex: "depuis quelques jours", "parfois", "récemment"
+
+  0.00 → AUCUN contexte temporel, aucun déclencheur, aucun code erreur
+         Ex: "mon PC est lent", "ça marche pas", "j'ai un problème"
+         IMPORTANT: Si aucune info de timing/trigger/erreur → 0.00
+
+═══════════════════════════════════════════════════════════════════
+
+CALCUL FINAL:
+  confidence_score = critère1 + critère2 + critère3 + critère4
+  Maximum possible = 0.35 + 0.25 + 0.25 + 0.15 = 1.0
+  Minimum possible = 0.00 + 0.00 + 0.05 + 0.00 = 0.05
 
 RÉPONSE JSON ATTENDUE :
+{{
+  "suggested_category_id": <int ou null>,
+  "confidence_score": <float 0.05-1.0>,
+  "scoring_breakdown": {{
+    "problem_specificity": <float 0-0.35>,
+    "system_identified": <float 0-0.25>,
+    "category_confidence": <float 0.05-0.25>,
+    "actionable_context": <float 0-0.15>
+  }},
+  "extracted_title": "<string max 80 chars>",
+  "extracted_symptoms": ["<symptom1>", "<symptom2>", ...],
+  "suggested_priority": "<low|medium|high|critical>",
+  "extracted_info": {{
+    "device_type": "<string ou null>",
+    "os": "<string ou null>",
+    "application": "<string ou null>",
+    "error_message": "<string ou null>",
+    "onset": "<string ou null>"
+  }},
+  "missing_info": ["<info1>", "<info2>", ...],
+  "clarification_question": "<string ou null>"
+}}
 """
         try:
             result = await self._call_openai(user_prompt)
@@ -159,13 +245,19 @@ RÉPONSE JSON ATTENDUE :
             return {
                 "suggested_category_id": None,
                 "suggested_category_name": None,
-                "confidence_score": 0.0,
+                "confidence_score": 0.05,
+                "scoring_breakdown": {
+                    "problem_specificity": 0.0,
+                    "system_identified": 0.0,
+                    "category_confidence": 0.05,
+                    "actionable_context": 0.0
+                },
                 "extracted_title": "",
                 "extracted_symptoms": [],
                 "suggested_priority": "medium",
                 "extracted_info": {},
                 "missing_info": ["AI processing error"],
-                "clarification_question": "Pouvez-vous reformuler ?"
+                "clarification_question": "Pouvez-vous reformuler votre demande ?"
             }
 
     # ----------------------------------------------------------------------
@@ -263,14 +355,15 @@ TONALITÉ:
 - Guide l'utilisateur progressivement
 
 RÉPONSE JSON REQUISE:
-- suggested_category_id (int ou null)
-- confidence_score (float 0.0-1.0)
+- suggested_category_id (int ou null — TOUJOURS suggérer une catégorie)
+- confidence_score (float 0.05-1.0 — JAMAIS en dessous de 0.05)
+- scoring_breakdown (object: problem_specificity, system_identified, category_confidence, actionable_context)
 - extracted_title (string, max 80 chars)
-- extracted_symptoms (array, 2-5 éléments)
+- extracted_symptoms (array, 1-5 éléments)
 - suggested_priority (string: low/medium/high/critical)
-- extracted_info (object: device_type, os, onset, location, error_message)
+- extracted_info (object: device_type, os, application, error_message, onset)
 - missing_info (array: liste des infos manquantes)
-- clarification_question (string: question ciblée si confiance < 0.9)
+- clarification_question (string: question ciblée si confiance < 0.85)
 """
                         },
                         {"role": "user", "content": prompt}
