@@ -110,9 +110,10 @@ class TicketWorkflow:
         # FIN PHASE 1 - SUITE DU WORKFLOW NORMAL
         # ====================================================================
 
-        # Récupérer le nombre de tentatives précédentes
+        # Récupérer le nombre de tentatives précédentes + historique conversation
         attempts = 0
         previous_choice = selected_choice_id
+        conversation_history = [{"role": "user", "content": message}]
         if parent_session_id:
             parent = db.query(AnalysisSession).filter(
                 AnalysisSession.id == parent_session_id
@@ -123,6 +124,12 @@ class TicketWorkflow:
                     previous_choice = parent.selected_choice_id
                 if not previous_analysis:
                     previous_analysis = parent.ai_summary
+                # Construire l'historique de conversation
+                conversation_history = list(parent.conversation_history or [])
+                prev_question = (parent.ai_summary or {}).get("clarification_question")
+                if prev_question:
+                    conversation_history.append({"role": "assistant", "content": prev_question})
+                conversation_history.append({"role": "user", "content": message})
         # Vérifier limite de tentatives
         if attempts >= MAX_CLARIFICATION_ATTEMPTS:
             return await self._handle_max_attempts_reached(
@@ -149,7 +156,8 @@ class TicketWorkflow:
                 categories=subcategories,
                 clarification_attempt=attempts,
                 previous_analysis=previous_analysis,
-                detected_context=detected_context  # NOUVEAU
+                detected_context=detected_context,
+                conversation_history=conversation_history
             )
             
             confidence = analysis.get("confidence_score", 0.0)
@@ -164,6 +172,7 @@ class TicketWorkflow:
                     clarification_question=analysis.get("clarification_question"),
                     previous_choice=previous_choice,
                     categories=categories,
+                    conversation_history=conversation_history,
                 )
             
             # Déterminer l'action
@@ -201,6 +210,7 @@ class TicketWorkflow:
                 clarification_attempts=attempts,
                 parent_session_id=parent_session_id,
                 selected_choice_id=selected_choice_id,
+                conversation_history=conversation_history,
                 expires_at=utc_now() + timedelta(minutes=SESSION_EXPIRATION_MINUTES)
             )
             
@@ -252,6 +262,7 @@ class TicketWorkflow:
         clarification_question: Optional[str] = None,
         previous_choice: Optional[str] = None,
         categories: Optional[List[Dict]] = None,
+        conversation_history: Optional[List[Dict]] = None,
     ) -> Dict:
         """
         Gère le cas où le message est trop vague (confidence < 30%)
@@ -260,13 +271,14 @@ class TicketWorkflow:
         """
         print("\n clarification_question (inside function too_vague):", clarification_question)
         session = AnalysisSession(
-            ai_summary=None,
+            ai_summary={"clarification_question": clarification_question} if clarification_question else None,
             original_message=message,
             confidence_score="0.0",
             status="too_vague",
             user_email=user_email,
             action_type="too_vague",
             clarification_attempts=attempts,
+            conversation_history=conversation_history or [],
             expires_at=utc_now() + timedelta(minutes=SESSION_EXPIRATION_MINUTES)
         )
 

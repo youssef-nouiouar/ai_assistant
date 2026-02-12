@@ -28,10 +28,9 @@ class AnalysisSession(Base):
     action_type = Column(String(50))
     ticket_id = Column(Integer)
 
-    # NOUVEAU: Contexte de conversation établi
-    # Stocke ce qui a été identifié pour ne pas le répéter
-    conversation_context = Column(JSONB, default=dict)
-    # Format: {"identified_category": "network", "confirmed_device": "PC", ...}
+    # Historique de conversation pour mémoire contextuelle
+    # Format: [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}, ...]
+    conversation_history = Column(JSONB, default=list)
 
     # NOUVEAU: Raison d'invalidation (pour analytics)
     invalidation_reason = Column(String(100), nullable=True)

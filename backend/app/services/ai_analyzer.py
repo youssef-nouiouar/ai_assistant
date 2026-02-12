@@ -33,13 +33,16 @@ class AIAnalyzer:
         categories: List[Dict],
         clarification_attempt: int = 0,
         previous_analysis: Optional[Dict] = None,
-        detected_context: Optional[str] = None  # NOUVEAU: contexte détecté par keywords
+        detected_context: Optional[str] = None,
+        conversation_history: Optional[List[Dict]] = None
     ) -> Dict:
 
-        # --- Cache (optionnel mais très utile pour réduire le coût + temps)
-        # Phase 3: Skip cache quand previous_analysis est present (contexte different)
-        cache_key = hashlib.sha256(message.encode()).hexdigest()
-        if not previous_analysis and not detected_context and cache_key in self.local_cache:
+        # --- Cache: skip si conversation en cours (contexte différent à chaque tour)
+        has_history = conversation_history and len(conversation_history) > 1
+        cache_key = hashlib.sha256(
+            f"{message}|{len(conversation_history or [])}".encode()
+        ).hexdigest()
+        if not has_history and not detected_context and cache_key in self.local_cache:
             return self.local_cache[cache_key]
 
         categories_text = "\n".join([
@@ -71,32 +74,11 @@ CONTEXTE DÉTECTÉ PAR MOTS-CLÉS: {context_label}
 IMPORTANT: Priorise les catégories liées à ce contexte lors de ta classification.
 """
 
-        # Phase 3: Construire le bloc de contexte precedent
-        previous_context_block = ""
-        if previous_analysis:
-            prev_cat = previous_analysis.get("category") or {}
-            prev_cat_name = prev_cat.get("name", "Inconnue") if prev_cat else "Inconnue"
-            prev_confidence = prev_cat.get("confidence", 0) if prev_cat else 0
-            prev_title = previous_analysis.get("title", "")
-            prev_symptoms = previous_analysis.get("symptoms", [])
-            prev_missing = previous_analysis.get("missing_info", [])
-
-            previous_context_block = f"""
-ANALYSE PRECEDENTE (a prendre en compte):
-- Categorie detectee: {prev_cat_name} (confiance: {prev_confidence})
-- Titre provisoire: {prev_title}
-- Symptomes identifies: {', '.join(prev_symptoms) if prev_symptoms else 'Aucun'}
-- Informations manquantes: {', '.join(prev_missing) if prev_missing else 'Aucune'}
-
-IMPORTANT: Utilise ces informations comme base. Ne repars PAS de zero.
-Ameliore l'analyse avec les nouvelles precisions de l'utilisateur.
-"""
-
         user_prompt = f"""
 MESSAGE:
 {message}
 
-{detected_context_block}{previous_context_block}
+{detected_context_block}
 CATEGORIES:
 {categories_text}
 
@@ -225,7 +207,7 @@ RÉPONSE JSON ATTENDUE :
 }}
 """
         try:
-            result = await self._call_openai(user_prompt)
+            result = await self._call_openai(user_prompt, conversation_history=conversation_history)
 
             # Ajout du nom de la catégorie
             category = next(
@@ -301,52 +283,24 @@ TROISIÈME TENTATIVE (DERNIÈRE): Pose des questions FERMÉES (oui/non).
     MAX_RETRIES = 3
     BASE_DELAY = 1.0  # Délai de base en secondes
 
-    async def _call_openai(self, prompt: str) -> Dict:
+    async def _call_openai(self, prompt: str, conversation_history: Optional[List[Dict]] = None) -> Dict:
         """
         Appelle l'API LLM avec retry automatique et backoff exponentiel.
-
-        Amélioration Phase 1:
-        - ✅ 3 tentatives avec délai croissant
-        - ✅ Jitter aléatoire pour éviter la congestion
-        - ✅ Logs détaillés pour debugging
+        Injecte l'historique de conversation comme messages chat entre system et prompt final.
         """
         last_exception = None
 
-        for attempt in range(self.MAX_RETRIES):
-            try:
-                response = self.client.chat.completions.create(
-                    model="google/gemini-2.5-flash-lite-preview-09-2025",
-                    response_format={"type": "json_object"},  # JSON garanti
-                    messages=[
-                        {
-                            "role": "system",
-                            "content": """
+        system_content = """
 Tu es un assistant IT expert et EMPATHIQUE qui aide les utilisateurs à créer des tickets de support.
 
 OBJECTIF: Analyser le message IT et renvoyer un JSON strict.
 
-RÈGLES DE CLARIFICATION PROGRESSIVE (PHASE 1):
-
-TENTATIVE 0 (Première analyse):
+RÈGLES DE CLARIFICATION:
 - Analyse le message et identifie ce que tu peux
-- Si informations manquantes: pose UNE question claire et générale
-- Exemple: "Pourriez-vous préciser quel appareil ou application est concerné ?"
-
-TENTATIVE 1 (Deuxième chance):
-- Pose une question DIFFÉRENTE et PLUS SPÉCIFIQUE
-- Propose des ALTERNATIVES concrètes
-- Exemple: "Votre PC ne démarre pas du tout, démarre mais est lent, ou affiche une erreur ?"
-- NE JAMAIS répéter la même question
-
-TENTATIVE 2+ (Dernière chance):
-- Pose une question FERMÉE (oui/non) ou TRÈS SIMPLE
-- Exemple: "Voyez-vous un message d'erreur à l'écran ?"
-- Ou: "Le problème est apparu aujourd'hui ?"
-
-DÉTECTION DE PATTERNS (pour questions intelligentes):
-- Si mot "lent" → demander: "PC lent, Internet lent, ou application lente ?"
-- Si mot "imprime" → demander: "N'imprime pas du tout, ou mauvaise qualité ?"
-- Si mot "connexion" → demander: "WiFi, VPN, ou compte bloqué ?"
+- Si informations manquantes: pose UNE question claire et ciblée
+- NE JAMAIS répéter une question déjà posée dans la conversation
+- Adapte ta stratégie selon ce que l'utilisateur a déjà dit
+- Si l'utilisateur a déjà répondu à une question, utilise cette info
 
 TONALITÉ:
 - Amicale et rassurante
@@ -365,11 +319,29 @@ RÉPONSE JSON REQUISE:
 - missing_info (array: liste des infos manquantes)
 - clarification_question (string: question ciblée si confiance < 0.85)
 """
-                        },
-                        {"role": "user", "content": prompt}
-                    ],
+
+        for attempt in range(self.MAX_RETRIES):
+            try:
+                # Construire les messages: system + historique conversation + prompt analyse
+                messages = [{"role": "system", "content": system_content}]
+
+                # Injecter l'historique de conversation (max 7 derniers messages)
+                if conversation_history and len(conversation_history) > 1:
+                    for msg in conversation_history[-7:]:
+                        messages.append({
+                            "role": msg["role"],
+                            "content": msg["content"]
+                        })
+
+                # Prompt d'analyse final (toujours en dernier)
+                messages.append({"role": "user", "content": prompt})
+
+                response = self.client.chat.completions.create(
+                    model="google/gemini-2.5-flash-lite-preview-09-2025",
+                    response_format={"type": "json_object"},
+                    messages=messages,
                     temperature=0.1,
-                    timeout=30,  # Timeout de 30 secondes
+                    timeout=30,
                 )
 
                 content = response.choices[0].message.content
