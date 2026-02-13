@@ -33,7 +33,6 @@ class AIAnalyzer:
         categories: List[Dict],
         clarification_attempt: int = 0,
         previous_analysis: Optional[Dict] = None,
-        detected_context: Optional[str] = None,
         conversation_history: Optional[List[Dict]] = None
     ) -> Dict:
 
@@ -42,7 +41,7 @@ class AIAnalyzer:
         cache_key = hashlib.sha256(
             f"{message}|{len(conversation_history or [])}".encode()
         ).hexdigest()
-        if not has_history and not detected_context and cache_key in self.local_cache:
+        if not has_history and cache_key in self.local_cache:
             return self.local_cache[cache_key]
 
         categories_text = "\n".join([
@@ -53,32 +52,10 @@ class AIAnalyzer:
         # PHASE 1: Instructions progressives selon les tentatives
         clarification_instruction = self._get_clarification_instruction(clarification_attempt)
 
-        # NOUVEAU: Bloc de contexte détecté par mots-clés
-        detected_context_block = ""
-        if detected_context:
-            context_mapping = {
-                # Noms DB (retournés par context_detector.detect_context)
-                "01-Acces-Authentification": "PROBLÈME D'ACCÈS (mot de passe, compte bloqué, permissions)",
-                "02-Messagerie": "PROBLÈME EMAIL (messagerie, Outlook, envoi/réception)",
-                "03-Reseau-Internet": "PROBLÈME RÉSEAU (WiFi, Internet, connexion, VPN)",
-                "04-Postes-travail": "PROBLÈME POSTE DE TRAVAIL (ordinateur lent, bloqué, redémarrage)",
-                "05-Applications": "PROBLÈME LOGICIEL (application, programme, installation, crash)",
-                "06-Telephonie": "PROBLÈME TÉLÉPHONIE (softphone, casque, qualité audio, appels)",
-                "07-Fichiers-Partages": "PROBLÈME FICHIERS (partages réseau, OneDrive, accès refusé)",
-                "08-Materiel": "PROBLÈME MATÉRIEL (imprimante, écran, clavier, souris, périphériques)",
-                "09-Securite": "PROBLÈME SÉCURITÉ (antivirus, phishing, email suspect)",
-            }
-            context_label = context_mapping.get(detected_context, detected_context.upper())
-            detected_context_block = f"""
-CONTEXTE DÉTECTÉ PAR MOTS-CLÉS: {context_label}
-IMPORTANT: Priorise les catégories liées à ce contexte lors de ta classification.
-"""
-
         user_prompt = f"""
 MESSAGE:
 {message}
 
-{detected_context_block}
 CATEGORIES:
 {categories_text}
 
@@ -276,6 +253,48 @@ TROISIÈME TENTATIVE (DERNIÈRE): Pose des questions FERMÉES (oui/non).
 """
         else:
             return ""
+
+    # ----------------------------------------------------------------------
+    # ANALYSE LÉGÈRE (pour détection de catégorie)
+    # ----------------------------------------------------------------------
+    async def get_category_for_message(self, message: str, categories: List[Dict]) -> Optional[int]:
+        """
+        Analyse très légère pour obtenir uniquement la catégorie la plus probable.
+        Utilise un prompt simplifié et un timeout court.
+        """
+        categories_text = "\n".join([
+            f"{cat['id']} | {cat['name']}" for cat in categories
+        ])
+
+        prompt = f"""
+MESSAGE UTILISATEUR:
+"{message}"
+
+LISTE DES CATÉGORIES POSSIBLES:
+{categories_text}
+
+QUELLE est la catégorie la plus probable pour ce message ?
+Réponds UNIQUEMENT avec un JSON contenant l'ID de la catégorie.
+Exemple: {{"category_id": 12}}
+Si aucune catégorie ne semble correspondre, réponds {{"category_id": null}}.
+"""
+        try:
+            messages = [
+                {"role": "system", "content": "Tu es un expert en classification de tickets IT. Réponds uniquement en JSON."},
+                {"role": "user", "content": prompt}
+            ]
+            response = self.client.chat.completions.create(
+                model="google/gemini-2.5-flash-lite-preview-09-2025",
+                response_format={"type": "json_object"},
+                messages=messages,
+                temperature=0.0,
+                timeout=15, # Timeout plus court
+            )
+            content = json.loads(response.choices[0].message.content)
+            return content.get("category_id")
+        except Exception as e:
+            print(f"Erreur lors de l'analyse légère de catégorie: {e}")
+            return None
 
     # ----------------------------------------------------------------------
     # APPEL OPENAI (avec retry et backoff exponentiel)

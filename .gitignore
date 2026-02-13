@@ -1,6 +1,6 @@
 # Ignore environment files containing secrets
-# backend/.env
-# *.env
+backend/.env
+*.env
 
 # Node
 frontend/node_modules/
@@ -23,3 +23,12 @@ __pycache__/
 *.pyc
 # knowledge base
 knowledge base/
+
+*.ipynb
+
+document/
+
+nul
+backend/migrations/
+
+backend/run_scoring_test.py

@@ -147,16 +147,12 @@ class TicketWorkflow:
             if not subcategories:
                 raise AIAnalysisError("Aucune catégorie disponible pour l'analyse.")
 
-            # NOUVEAU: Détecter le contexte par mots-clés pour améliorer la classification
-            detected_context = context_detector.detect_context(message)
-
             # Analyse IA (utilise seulement les sous-catégories level 2)
             analysis = await ai_analyzer.analyze_message_with_smart_summary(
                 message=message,
                 categories=subcategories,
                 clarification_attempt=attempts,
                 previous_analysis=previous_analysis,
-                detected_context=detected_context,
                 conversation_history=conversation_history
             )
             
@@ -169,7 +165,7 @@ class TicketWorkflow:
                     message=message,
                     user_email=user_email,
                     attempts=attempts,
-                    clarification_question=analysis.get("clarification_question"),
+                    analysis=analysis,
                     previous_choice=previous_choice,
                     categories=categories,
                     conversation_history=conversation_history,
@@ -259,7 +255,7 @@ class TicketWorkflow:
         message: str,
         user_email: Optional[str],
         attempts: int,
-        clarification_question: Optional[str] = None,
+        analysis: Optional[Dict] = None,
         previous_choice: Optional[str] = None,
         categories: Optional[List[Dict]] = None,
         conversation_history: Optional[List[Dict]] = None,
@@ -269,6 +265,8 @@ class TicketWorkflow:
 
         Phase 2 : Ajout de choix guidés cliquables
         """
+        analysis = analysis or {}
+        clarification_question = analysis.get("clarification_question")
         print("\n clarification_question (inside function too_vague):", clarification_question)
         session = AnalysisSession(
             ai_summary={"clarification_question": clarification_question} if clarification_question else None,
@@ -287,7 +285,27 @@ class TicketWorkflow:
         db.refresh(session)
 
         # Phase 3: Suggestions intelligentes avec raisonnement
-        detected_context = context_detector.detect_context(message)
+        all_categories = categories or self._get_categories(db)
+        # Extract AI-detected context: find the parent (level 1) category name
+        # so that suggestion_manager.find_parent_by_name() can match it
+        ai_suggested_category_id = analysis.get("suggested_category_id")
+        detected_context = None
+        if ai_suggested_category_id:
+            try:
+                category = next((cat for cat in all_categories if cat['id'] == ai_suggested_category_id), None)
+                if category:
+                    parent_id = category.get('parent_id')
+                    if parent_id:
+                        # Level 2 subcategory → find its level 1 parent name
+                        parent = next((cat for cat in all_categories if cat['id'] == parent_id), None)
+                        if parent:
+                            detected_context = parent.get('name')
+                    else:
+                        # Already a level 1 category
+                        detected_context = category.get('name')
+            except (StopIteration, KeyError):
+                detected_context = None
+
 
         # Créer le contexte pour le SuggestionManager
         suggestion_context = SuggestionContext(
@@ -298,7 +316,7 @@ class TicketWorkflow:
             clarification_attempt=attempts,
             previous_choice_id=previous_choice,
             ai_clarification_question=clarification_question,
-            db_categories=categories or self._get_categories(db),
+            db_categories=all_categories,
         )
 
         # Obtenir des suggestions intelligentes avec raisonnement
@@ -531,74 +549,68 @@ class TicketWorkflow:
             db.commit()
 
         # ================================================================
-        # NOUVEAU: Détection de changement de sujet (Topic Shift)
+        # NOUVEAU: Détection de changement de sujet (Topic Shift) sémantique
         # ================================================================
-        topic_shift = context_detector.detect_topic_shift(
-            original_message=original_message,
-            clarification_response=clarification_response
-        )
+        is_topic_shift = False
+        original_category_id = (previous_analysis.get("category") or {}).get("id")
+        new_category_id = None
 
-        if topic_shift["is_topic_shift"]:
+        # Heuristique : les réponses courtes ne sont pas des changements de sujet
+        if len(clarification_response.split()) > 8:
+            all_categories = self._get_categories(db)
+            sub_categories = self._get_subcategories(all_categories)
+            new_category_id = await ai_analyzer.get_category_for_message(clarification_response, sub_categories)
+
+            if new_category_id and original_category_id != new_category_id:
+                is_topic_shift = True
+
+        if is_topic_shift:
+            original_cat = next((c for c in all_categories if c['id'] == original_category_id), None)
+            new_cat = next((c for c in all_categories if c['id'] == new_category_id), None)
+            original_context_name = original_cat['name'] if original_cat else "problème initial"
+            new_context_name = new_cat['name'] if new_cat else "nouveau problème"
+            
             structured_logger.log_error(
                 "TOPIC_SHIFT_DETECTED",
-                f"Original: {topic_shift['original_context']} → New: {topic_shift['new_context']}"
+                f"Original: {original_context_name} → New: {new_context_name}"
             )
 
-            if topic_shift["recommendation"] == "replace":
-                # Changement radical de sujet → traiter comme NOUVEAU problème
-                # Invalider l'ancienne session et repartir de zéro
-                session.status = "invalidated"
-                session.invalidation_reason = "topic_shift_replaced"
-                db.commit()
+            # Créer une session spéciale pour gérer le topic shift
+            shift_session = AnalysisSession(
+                ai_summary={
+                    "topic_shift": True,
+                    "original_context": original_context_name,
+                    "new_context": new_context_name,
+                    "original_message": original_message,
+                    "clarification_response": clarification_response
+                },
+                original_message=original_message,
+                confidence_score="0.0",
+                status="pending_topic_choice",
+                user_email=user_email,
+                action_type="topic_shift",
+                clarification_attempts=session.clarification_attempts,
+                parent_session_id=session_id,
+                expires_at=utc_now() + timedelta(minutes=SESSION_EXPIRATION_MINUTES)
+            )
 
-                # Analyser le nouveau message seul (pas de fusion)
-                return await self.analyze_message(
-                    db=db,
-                    message=clarification_response,  # Seulement le nouveau message
-                    user_email=user_email,
-                    parent_session_id=None,  # Pas de parent, c'est un nouveau départ
-                    selected_choice_id=None,
-                    previous_analysis=None
-                )
+            db.add(shift_session)
+            db.commit()
+            db.refresh(shift_session)
 
-            elif topic_shift["recommendation"] == "ask_user":
-                # Sujets potentiellement liés → demander à l'utilisateur
-                # Créer une session spéciale pour gérer le topic shift
-                shift_session = AnalysisSession(
-                    ai_summary={
-                        "topic_shift": True,
-                        "original_context": topic_shift["original_context"],
-                        "new_context": topic_shift["new_context"],
-                        "original_message": original_message,
-                        "clarification_response": clarification_response
-                    },
-                    original_message=original_message,
-                    confidence_score="0.0",
-                    status="pending_topic_choice",
-                    user_email=user_email,
-                    action_type="topic_shift",
-                    clarification_attempts=session.clarification_attempts,
-                    parent_session_id=session_id,
-                    expires_at=utc_now() + timedelta(minutes=SESSION_EXPIRATION_MINUTES)
-                )
-
-                db.add(shift_session)
-                db.commit()
-                db.refresh(shift_session)
-
-                return {
-                    "session_id": shift_session.id,
-                    "type": "topic_shift",
-                    "action": "topic_shift",
-                    "message": context_detector.get_topic_shift_message(
-                        topic_shift["original_context"],
-                        topic_shift["new_context"]
-                    ),
-                    "summary": None,
-                    "clarification_attempts": session.clarification_attempts,
-                    "guided_choices": context_detector.get_topic_shift_choices(),
-                    "expires_at": shift_session.expires_at.isoformat()
-                }
+            return {
+                "session_id": shift_session.id,
+                "type": "topic_shift",
+                "action": "topic_shift",
+                "message": context_detector.get_topic_shift_message(
+                    original_context_name,
+                    new_context_name
+                ),
+                "summary": None,
+                "clarification_attempts": session.clarification_attempts,
+                "guided_choices": context_detector.get_topic_shift_choices(),
+                "expires_at": shift_session.expires_at.isoformat()
+            }
 
         # ================================================================
         # PAS DE TOPIC SHIFT → Comportement normal (fusion du contexte)

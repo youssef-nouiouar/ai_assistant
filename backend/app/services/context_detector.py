@@ -100,184 +100,8 @@ class ContextDetector:
     ]
 
     # ====================================================================
-    # DÉTECTION DE MOTS-CLÉS → CHOIX CIBLÉS
-    # ====================================================================
-
-    KEYWORD_CONTEXT_MAP = {
-        # Postes de travail (04)
-        "lent": "04-Postes-travail",
-        "lenteur": "04-Postes-travail",
-        "lente": "04-Postes-travail",
-        "ordinateur": "04-Postes-travail",
-        "pc": "04-Postes-travail",
-        # Matériel (08)
-        "écran": "08-Materiel",
-        "clavier": "08-Materiel",
-        "souris": "08-Materiel",
-        # Applications (05)
-        "application": "05-Applications",
-        "logiciel": "05-Applications",
-        "excel": "05-Applications",
-        "word": "05-Applications",
-        "teams": "05-Applications",
-        "sap": "05-Applications",
-        "julius": "05-Applications",
-        "plante": "05-Applications",
-        "crash": "05-Applications",
-        # Réseau (03)
-        "wifi": "03-Reseau-Internet",
-        "internet": "03-Reseau-Internet",
-        "réseau": "03-Reseau-Internet",
-        "reseau": "03-Reseau-Internet",
-        "connexion": "03-Reseau-Internet",
-        "vpn": "03-Reseau-Internet",
-        # Accès (01)
-        "mot de passe": "01-Acces-Authentification",
-        "password": "01-Acces-Authentification",
-        "bloqué": "01-Acces-Authentification",
-        "bloque": "01-Acces-Authentification",
-        "compte": "01-Acces-Authentification",
-        "connecter": "01-Acces-Authentification",
-        "permissions": "01-Acces-Authentification",
-        # Messagerie (02) - outlook ici et non dans Applications
-        "email": "02-Messagerie",
-        "mail": "02-Messagerie",
-        "messagerie": "02-Messagerie",
-        "outlook": "02-Messagerie",
-        # Matériel - Imprimante (08)
-        "imprimante": "08-Materiel",
-        "imprimer": "08-Materiel",
-        "impression": "08-Materiel",
-        "imprime": "08-Materiel",
-        # Téléphonie (06)
-        "telephone": "06-Telephonie",
-        "téléphone": "06-Telephonie",
-        "casque": "06-Telephonie",
-        "appel": "06-Telephonie",
-        "softphone": "06-Telephonie",
-        "audio": "06-Telephonie",
-        # Fichiers / Partages (07)
-        "fichier": "07-Fichiers-Partages",
-        "partage": "07-Fichiers-Partages",
-        "onedrive": "07-Fichiers-Partages",
-        "sharepoint": "07-Fichiers-Partages",
-        "dossier": "07-Fichiers-Partages",
-        # Sécurité (09)
-        "virus": "09-Securite",
-        "antivirus": "09-Securite",
-        "phishing": "09-Securite",
-        "suspect": "09-Securite",
-        "securite": "09-Securite",
-        "sécurité": "09-Securite",
-    }
-
-    # ====================================================================
     # MÉTHODES PUBLIQUES
     # ====================================================================
-
-    @classmethod
-    def detect_context(cls, message: str) -> Optional[str]:
-        """
-        Détecte le contexte du message à partir de mots-clés.
-        Retourne l'ID du contexte détecté ou None.
-        """
-        message_lower = message.lower()
-
-        for keyword, context_id in cls.KEYWORD_CONTEXT_MAP.items():
-            if keyword in message_lower:
-                return context_id
-
-        return None
-
-    @classmethod
-    def detect_topic_shift(
-        cls,
-        original_message: str,
-        clarification_response: str
-    ) -> dict:
-        """
-        Détecte si l'utilisateur a changé de sujet entre le message original
-        et sa réponse de clarification.
-
-        Retourne:
-        - is_topic_shift: bool - True si le sujet a changé
-        - original_context: str - Contexte du message original
-        - new_context: str - Contexte de la clarification
-        - recommendation: str - "merge", "replace", ou "ask_user"
-        """
-        # GUARD: Réponse courte = réponse à la question, PAS un changement de sujet
-        # Ex: "mon ordinateur", "depuis ce matin", "bureau 301"
-        if len(clarification_response.split()) < 10:
-            return {
-                "is_topic_shift": False,
-                "original_context": cls.detect_context(original_message),
-                "new_context": None,
-                "recommendation": "merge"
-            }
-
-        original_context = cls.detect_context(original_message)
-        new_context = cls.detect_context(clarification_response)
-
-        # Cas 1: Pas de contexte détecté dans la clarification → pas de shift
-        if not new_context:
-            return {
-                "is_topic_shift": False,
-                "original_context": original_context,
-                "new_context": None,
-                "recommendation": "merge"
-            }
-
-        # Cas 2: Pas de contexte original → utiliser le nouveau
-        if not original_context:
-            return {
-                "is_topic_shift": False,
-                "original_context": None,
-                "new_context": new_context,
-                "recommendation": "merge"
-            }
-
-        # Cas 3: Même contexte → pas de shift
-        if original_context == new_context:
-            return {
-                "is_topic_shift": False,
-                "original_context": original_context,
-                "new_context": new_context,
-                "recommendation": "merge"
-            }
-
-        # Cas 4: Contextes différents → SHIFT DÉTECTÉ
-        # Vérifier si les contextes sont "compatibles" (ex: email + network peuvent être liés)
-        compatible_contexts = {
-            ("02-Messagerie", "03-Reseau-Internet"),  # Email peut être lié au réseau
-            ("03-Reseau-Internet", "02-Messagerie"),
-            ("02-Messagerie", "04-Postes-travail"),  # Email sur un poste spécifique
-            ("04-Postes-travail", "02-Messagerie"),
-            ("05-Applications", "04-Postes-travail"),  # App peut être liée au poste
-            ("04-Postes-travail", "05-Applications"),
-            ("05-Applications", "08-Materiel"),  # App peut être liée au matériel
-            ("08-Materiel", "05-Applications"),
-            ("01-Acces-Authentification", "03-Reseau-Internet"),  # Accès lié au réseau
-            ("03-Reseau-Internet", "01-Acces-Authentification"),
-            ("01-Acces-Authentification", "05-Applications"),  # Accès à une application
-            ("05-Applications", "01-Acces-Authentification"),
-        }
-
-        if (original_context, new_context) in compatible_contexts:
-            # Contextes potentiellement liés - demander clarification
-            return {
-                "is_topic_shift": True,
-                "original_context": original_context,
-                "new_context": new_context,
-                "recommendation": "ask_user"
-            }
-
-        # Contextes incompatibles → remplacer le contexte
-        return {
-            "is_topic_shift": True,
-            "original_context": original_context,
-            "new_context": new_context,
-            "recommendation": "replace"
-        }
 
     # ====================================================================
     # MESSAGES POUR CHANGEMENT DE SUJET
@@ -304,24 +128,8 @@ class ContextDetector:
     @classmethod
     def get_topic_shift_message(cls, old_context: str, new_context: str) -> str:
         """Génère un message pour gérer le changement de sujet"""
-        context_labels = {
-            # Noms DB
-            "01-Acces-Authentification": "un problème d'accès",
-            "02-Messagerie": "un problème de messagerie",
-            "03-Reseau-Internet": "un problème réseau/internet",
-            "04-Postes-travail": "un problème de poste de travail",
-            "05-Applications": "un problème applicatif",
-            "06-Telephonie": "un problème de téléphonie",
-            "07-Fichiers-Partages": "un problème de fichiers/partages",
-            "08-Materiel": "un problème matériel",
-            "09-Securite": "un problème de sécurité",
-        }
-
-        old_label = context_labels.get(old_context, old_context)
-        new_label = context_labels.get(new_context, new_context)
-
         template = random.choice(cls.TOPIC_SHIFT_MESSAGES)
-        return template.format(old_topic=old_label, new_topic=new_label)
+        return template.format(old_topic=old_context, new_topic=new_context)
 
     @classmethod
     def get_topic_shift_choices(cls) -> List[Dict]:
@@ -332,7 +140,7 @@ class ContextDetector:
     def get_guided_choices(
         cls,
         attempt: int,
-        message: str = "",
+        detected_context: Optional[str] = None,
         previous_choice: Optional[str] = None,
     ) -> List[Dict]:
         """
@@ -344,10 +152,9 @@ class ContextDetector:
         """
         if attempt == 0:
             # Première tentative: essayer de détecter le contexte
-            detected = cls.detect_context(message)
-            if detected and detected in cls.CONTEXT_CHOICES:
+            if detected_context and detected_context in cls.CONTEXT_CHOICES:
                 # Contexte détecté → proposer les sous-catégories directement
-                return [c.to_dict() for c in cls.CONTEXT_CHOICES[detected]]
+                return [c.to_dict() for c in cls.CONTEXT_CHOICES[detected_context]]
 
             # Pas de contexte → catégories principales
             return [c.to_dict() for c in cls.MAIN_CHOICES]
@@ -357,10 +164,9 @@ class ContextDetector:
             if previous_choice and previous_choice in cls.CONTEXT_CHOICES:
                 return [c.to_dict() for c in cls.CONTEXT_CHOICES[previous_choice]]
 
-            # Fallback: essayer de détecter le contexte dans le message enrichi
-            detected = cls.detect_context(message)
-            if detected and detected in cls.CONTEXT_CHOICES:
-                return [c.to_dict() for c in cls.CONTEXT_CHOICES[detected]]
+            # Fallback: utiliser le contexte détecté s'il existe
+            if detected_context and detected_context in cls.CONTEXT_CHOICES:
+                return [c.to_dict() for c in cls.CONTEXT_CHOICES[detected_context]]
 
             # Rien trouvé → catégories principales
             return [c.to_dict() for c in cls.MAIN_CHOICES]
@@ -453,21 +259,9 @@ class ContextDetector:
         """
         if attempt == 0:
             if detected_context:
-                context_labels = {
-                    # Noms DB
-                    "01-Acces-Authentification": "un problème d'accès",
-                    "02-Messagerie": "un problème de messagerie",
-                    "03-Reseau-Internet": "un problème réseau",
-                    "04-Postes-travail": "un problème de poste de travail",
-                    "05-Applications": "un problème applicatif",
-                    "06-Telephonie": "un problème de téléphonie",
-                    "07-Fichiers-Partages": "un problème de fichiers/partages",
-                    "08-Materiel": "un problème matériel",
-                    "09-Securite": "un problème de sécurité",
-                }
-                label = context_labels.get(detected_context, "un problème")
+                # Contexte détecté, mais on reste générique pour ne pas faire de fausse supposition
                 template = random.choice(cls.ATTEMPT_0_MESSAGES_WITH_CONTEXT)
-                return template.format(label=label)
+                return template.format(label="un problème")
 
             return random.choice(cls.ATTEMPT_0_MESSAGES_NO_CONTEXT)
 

@@ -232,7 +232,7 @@ class SuggestionManager:
             return get_main_choices(context.db_categories)
         # Fallback legacy
         return context_detector.get_guided_choices(
-            attempt=0, message=context.user_input, previous_choice=None
+            attempt=0, detected_context=context.detected_category, previous_choice=None
         )
 
     @classmethod
@@ -247,7 +247,7 @@ class SuggestionManager:
                     return subs
         # Fallback legacy
         return context_detector.get_guided_choices(
-            attempt=0, message=context.user_input, previous_choice=context.detected_category
+            attempt=0, detected_context=context.detected_category, previous_choice=context.detected_category
         )
 
     @classmethod
@@ -267,7 +267,7 @@ class SuggestionManager:
         # Fallback legacy
         return context_detector.get_guided_choices(
             attempt=context.clarification_attempt,
-            message=context.user_input,
+            detected_context=context.detected_category,
             previous_choice=context.previous_choice_id
         )
 
@@ -276,7 +276,7 @@ class SuggestionManager:
         """Suggestions finales (questions fermées - restent hardcodées)"""
         return context_detector.get_guided_choices(
             attempt=2,
-            message=context.user_input,
+            detected_context=context.detected_category,
             previous_choice=context.previous_choice_id
         )
 
@@ -308,7 +308,7 @@ class SuggestionManager:
 
         # Fallback legacy
         return context_detector.get_guided_choices(
-            attempt=0, message=context.user_input, previous_choice=None
+            attempt=0, detected_context=context.detected_category, previous_choice=None
         )
 
     # ================================================================
