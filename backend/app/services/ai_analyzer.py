@@ -7,7 +7,6 @@ from openai import OpenAI
 import json
 from app.core.config import settings
 import hashlib
-import time
 import asyncio
 import random
 
@@ -31,7 +30,6 @@ class AIAnalyzer:
         self,
         message: str,
         categories: List[Dict],
-        clarification_attempt: int = 0,
         previous_analysis: Optional[Dict] = None,
         conversation_history: Optional[List[Dict]] = None
     ) -> Dict:
@@ -49,19 +47,12 @@ class AIAnalyzer:
             for cat in categories
         ])
 
-        # PHASE 1: Instructions progressives selon les tentatives
-        clarification_instruction = self._get_clarification_instruction(clarification_attempt)
-
         user_prompt = f"""
 MESSAGE:
 {message}
 
 CATEGORIES:
 {categories_text}
-
-TENTATIVE DE CLARIFICATION: {clarification_attempt}/3
-
-{clarification_instruction}
 
 Donne UNIQUEMENT une réponse JSON.
 
@@ -220,41 +211,6 @@ RÉPONSE JSON ATTENDUE :
             }
 
     # ----------------------------------------------------------------------
-    # PHASE 1: INSTRUCTIONS PROGRESSIVES
-    # ----------------------------------------------------------------------
-    def _get_clarification_instruction(self, attempt: int) -> str:
-        """
-        Génère des instructions différentes selon la tentative
-        pour obtenir des questions progressives et variées
-        """
-        if attempt == 0:
-            # Première tentative: analyse normale
-            return """
-PREMIÈRE ANALYSE: Analyse le message normalement et identifie ce que tu peux.
-Si des informations manquent, génère une question GÉNÉRALE et CLAIRE.
-"""
-        elif attempt == 1:
-            # Deuxième tentative: question plus spécifique
-            return """
-DEUXIÈME TENTATIVE: L'utilisateur a fourni des précisions.
-- Pose UNE question TRÈS SPÉCIFIQUE et DIFFÉRENTE de la première
-- Propose des ALTERNATIVES concrètes (ex: "Est-ce A, B ou C ?")
-- Évite de répéter la même question que la tentative 1
-- Exemple: "Votre PC ne démarre pas du tout, ou il démarre mais est très lent ?"
-"""
-        elif attempt >= 2:
-            # Troisième tentative: questions fermées
-            return """
-TROISIÈME TENTATIVE (DERNIÈRE): Pose des questions FERMÉES (oui/non).
-- Question simple et directe
-- Exemple: "Voyez-vous un message d'erreur à l'écran ?"
-- Ou: "Le problème est-il apparu aujourd'hui ?"
-- NE PAS répéter les questions précédentes
-"""
-        else:
-            return ""
-
-    # ----------------------------------------------------------------------
     # ANALYSE LÉGÈRE (pour détection de catégorie)
     # ----------------------------------------------------------------------
     async def get_category_for_message(self, message: str, categories: List[Dict]) -> Optional[int]:
@@ -309,35 +265,17 @@ Si aucune catégorie ne semble correspondre, réponds {{"category_id": null}}.
         """
         last_exception = None
 
-        system_content = """
-Tu es un assistant IT expert et EMPATHIQUE qui aide les utilisateurs à créer des tickets de support.
+        system_content = """Tu es un assistant IT de support technique. Tu aides les utilisateurs à créer des tickets de support en comprenant leur problème informatique.
 
-OBJECTIF: Analyser le message IT et renvoyer un JSON strict.
+COMMENT INTERAGIR:
+- Sois chaleureux et empathique, comme un collègue qui aide
+- Si tu comprends bien le problème, extrais toutes les infos utiles
+- Si le message est vague, pose UNE seule question claire et spécifique
+- Ne répète JAMAIS une question déjà posée dans la conversation
+- Adapte ta stratégie: si une approche n'a pas marché, essaie autrement
+- Propose des alternatives concrètes quand tu demandes des précisions (ex: "Est-ce A, B ou C ?")
 
-RÈGLES DE CLARIFICATION:
-- Analyse le message et identifie ce que tu peux
-- Si informations manquantes: pose UNE question claire et ciblée
-- NE JAMAIS répéter une question déjà posée dans la conversation
-- Adapte ta stratégie selon ce que l'utilisateur a déjà dit
-- Si l'utilisateur a déjà répondu à une question, utilise cette info
-
-TONALITÉ:
-- Amicale et rassurante
-- Questions claires et simples
-- Jamais répétitive
-- Guide l'utilisateur progressivement
-
-RÉPONSE JSON REQUISE:
-- suggested_category_id (int ou null — TOUJOURS suggérer une catégorie)
-- confidence_score (float 0.05-1.0 — JAMAIS en dessous de 0.05)
-- scoring_breakdown (object: problem_specificity, system_identified, category_confidence, actionable_context)
-- extracted_title (string, max 80 chars)
-- extracted_symptoms (array, 1-5 éléments)
-- suggested_priority (string: low/medium/high/critical)
-- extracted_info (object: device_type, os, application, error_message, onset)
-- missing_info (array: liste des infos manquantes)
-- clarification_question (string: question ciblée si confiance < 0.85)
-"""
+RÉPONSE: Toujours en JSON strict avec les champs requis (voir le prompt utilisateur pour le schéma)."""
 
         for attempt in range(self.MAX_RETRIES):
             try:
@@ -359,7 +297,7 @@ RÉPONSE JSON REQUISE:
                     model="google/gemini-2.5-flash-lite-preview-09-2025",
                     response_format={"type": "json_object"},
                     messages=messages,
-                    temperature=0.1,
+                    temperature=0.5,
                     timeout=30,
                 )
 

@@ -151,7 +151,6 @@ class TicketWorkflow:
             analysis = await ai_analyzer.analyze_message_with_smart_summary(
                 message=message,
                 categories=subcategories,
-                clarification_attempt=attempts,
                 previous_analysis=previous_analysis,
                 conversation_history=conversation_history
             )
