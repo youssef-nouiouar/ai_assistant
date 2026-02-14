@@ -189,8 +189,9 @@ class TicketWorkflow:
                 "title": analysis.get("extracted_title"),
                 "symptoms": analysis.get("extracted_symptoms", []),
                 "extracted_info": analysis.get("extracted_info", {}),
-                "missing_info": missing_info,  # NOVO: Always a list
-                "clarification_question": analysis.get("clarification_question"),  # NOUVEAU
+                "missing_info": missing_info,
+                "clarification_question": analysis.get("clarification_question"),
+                "response_message": analysis.get("response_message"),
                 "original_message": message
             }
             
@@ -329,15 +330,17 @@ class TicketWorkflow:
             "relevance_score": suggestion_response.relevance_score
         }
 
-        # Phase 2: Message adapté avec indication des choix
-        message_to_user = context_detector.get_clarification_message(
-            attempt=attempts,
-            detected_context=detected_context,
-        )
-
-        # Ajouter la question IA en complément si disponible
-        if clarification_question and attempts > 0:
-            message_to_user += f"\n\n💬 *{clarification_question}*"
+        # Use AI-generated message if available, fallback to templates
+        ai_message = analysis.get("response_message")
+        if ai_message:
+            message_to_user = ai_message
+        else:
+            message_to_user = context_detector.get_clarification_message(
+                attempt=attempts,
+                detected_context=detected_context,
+            )
+            if clarification_question and attempts > 0:
+                message_to_user += f"\n\n💬 *{clarification_question}*"
 
         return {
             "session_id": session.id,
@@ -780,13 +783,15 @@ class TicketWorkflow:
         attempts: int = 0
     ) -> str:
         """
-        Génère le message utilisateur (Version Professionnelle)
-
-        AMÉLIORATIONS:
-        - ✅ Messages variés (sélection aléatoire)
-        - ✅ Messages plus courts
-        - ✅ Contexte-aware (évite répétitions si attempts > 0)
+        Génère le message utilisateur.
+        Utilise le message IA dynamique si disponible, sinon fallback templates.
         """
+        # Use AI-generated message if available
+        ai_message = summary.get("response_message") if summary else None
+        if ai_message:
+            return ai_message
+
+        # Fallback to templates
         if action == "auto_validate":
             return Messages.get("auto_validate", summary=self._format_summary_display(summary))
 
@@ -794,15 +799,10 @@ class TicketWorkflow:
             return Messages.get("confirm_summary", summary=self._format_summary_display(summary))
 
         elif action == "ask_clarification":
-            # Utiliser la question de clarification de l'analyse IA
             clarification_question = summary.get("clarification_question",
                                                   "Pouvez-vous fournir plus de détails ?")
-
-            # CONTEXT-AWARE: Si c'est une tentative suivante, message plus court
             if attempts > 0:
-                # On ne répète pas le contexte, juste la question
                 return f"🔍 **Encore une précision :**\n\n{clarification_question}"
-
             return Messages.get("ask_clarification", missing_info_list=clarification_question)
 
         elif action == "too_vague":

@@ -150,6 +150,15 @@ CALCUL FINAL:
   Maximum possible = 0.35 + 0.25 + 0.25 + 0.15 = 1.0
   Minimum possible = 0.00 + 0.00 + 0.05 + 0.00 = 0.05
 
+IMPORTANT — "response_message":
+Génère un message NATUREL et CONTEXTUEL pour l'utilisateur (2-4 phrases max, en français).
+- Si confiance élevée (>=0.60): résume ce que tu as compris de SON problème spécifique et demande confirmation
+- Si confiance moyenne (0.30-0.60): montre que tu as compris partiellement et pose ta question de clarification
+- Si confiance basse (<0.30): montre de l'empathie et pose une question ouverte pour mieux comprendre
+- Référence les mots de l'utilisateur (ex: "Votre imprimante HP...", pas "Votre appareil...")
+- Ne répète JAMAIS le même message si conversation en cours — varie ton style
+- Termine par une action claire: confirmer, préciser, ou répondre à ta question
+
 RÉPONSE JSON ATTENDUE :
 {{
   "suggested_category_id": <int ou null>,
@@ -171,7 +180,8 @@ RÉPONSE JSON ATTENDUE :
     "onset": "<string ou null>"
   }},
   "missing_info": ["<info1>", "<info2>", ...],
-  "clarification_question": "<string ou null>"
+  "clarification_question": "<string ou null>",
+  "response_message": "<string — message naturel pour l'utilisateur>"
 }}
 """
         try:
