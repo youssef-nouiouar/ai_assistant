@@ -20,7 +20,7 @@ from app.models.analysis_session import AnalysisSession
 from app.services.ai_analyzer import ai_analyzer
 from app.services.intent_validator import intent_validator
 from app.services.context_detector import context_detector
-from app.services.suggestion_manager import suggestion_manager, SuggestionContext
+from app.services.category_display import get_main_choices
 from app.core.exceptions import (
     SessionNotFoundError,
     SessionAlreadyConvertedError,
@@ -165,7 +165,6 @@ class TicketWorkflow:
                     user_email=user_email,
                     attempts=attempts,
                     analysis=analysis,
-                    previous_choice=previous_choice,
                     categories=categories,
                     conversation_history=conversation_history,
                 )
@@ -221,13 +220,21 @@ class TicketWorkflow:
                 category=analysis.get("suggested_category_name", "None")
             )
             
-            # CORRECTION : Générer message avec questions ciblées
             message_to_user = self._generate_message(
                 action=action,
                 summary=smart_summary,
                 missing_info=analysis.get("missing_info", []),
                 attempts=attempts
             )
+
+            # AI-generated choices for ask_clarification
+            guided_choices = None
+            ai_choices = analysis.get("suggested_choices")
+            if ai_choices and isinstance(ai_choices, list) and action == "ask_clarification":
+                guided_choices = [
+                    {"id": f"dynamic_{i}", "label": c.get("label", ""), "icon": c.get("icon", "📋")}
+                    for i, c in enumerate(ai_choices)
+                ]
 
             return {
                 "session_id": session.id,
@@ -236,7 +243,7 @@ class TicketWorkflow:
                 "message": message_to_user,
                 "summary": smart_summary,
                 "clarification_attempts": attempts,
-                "guided_choices": None,
+                "guided_choices": guided_choices,
                 "suggestion_metadata": None,
                 "expires_at": session.expires_at.isoformat()
             }
@@ -256,7 +263,6 @@ class TicketWorkflow:
         user_email: Optional[str],
         attempts: int,
         analysis: Optional[Dict] = None,
-        previous_choice: Optional[str] = None,
         categories: Optional[List[Dict]] = None,
         conversation_history: Optional[List[Dict]] = None,
     ) -> Dict:
@@ -284,51 +290,16 @@ class TicketWorkflow:
         db.commit()
         db.refresh(session)
 
-        # Phase 3: Suggestions intelligentes avec raisonnement
-        all_categories = categories or self._get_categories(db)
-        # Extract AI-detected context: find the parent (level 1) category name
-        # so that suggestion_manager.find_parent_by_name() can match it
-        ai_suggested_category_id = analysis.get("suggested_category_id")
-        detected_context = None
-        if ai_suggested_category_id:
-            try:
-                category = next((cat for cat in all_categories if cat['id'] == ai_suggested_category_id), None)
-                if category:
-                    parent_id = category.get('parent_id')
-                    if parent_id:
-                        # Level 2 subcategory → find its level 1 parent name
-                        parent = next((cat for cat in all_categories if cat['id'] == parent_id), None)
-                        if parent:
-                            detected_context = parent.get('name')
-                    else:
-                        # Already a level 1 category
-                        detected_context = category.get('name')
-            except (StopIteration, KeyError):
-                detected_context = None
-
-
-        # Créer le contexte pour le SuggestionManager
-        suggestion_context = SuggestionContext(
-            user_input=message,
-            previous_inputs=[],
-            detected_category=detected_context,
-            confidence_score=0.0,  # Confiance nulle pour too_vague
-            clarification_attempt=attempts,
-            previous_choice_id=previous_choice,
-            ai_clarification_question=clarification_question,
-            db_categories=all_categories,
-        )
-
-        # Obtenir des suggestions intelligentes avec raisonnement
-        suggestion_response = suggestion_manager.get_smart_suggestions(suggestion_context)
-
-        guided_choices = suggestion_response.suggestions
-        suggestion_metadata = {
-            "reasoning": suggestion_response.reasoning,
-            "should_regenerate": suggestion_response.should_regenerate,
-            "regeneration_reason": suggestion_response.regeneration_reason,
-            "relevance_score": suggestion_response.relevance_score
-        }
+        # Use AI-generated choices if available, fallback to DB categories
+        ai_choices = analysis.get("suggested_choices")
+        if ai_choices and isinstance(ai_choices, list):
+            guided_choices = [
+                {"id": f"dynamic_{i}", "label": c.get("label", ""), "icon": c.get("icon", "📋")}
+                for i, c in enumerate(ai_choices)
+            ]
+        else:
+            all_categories = categories or self._get_categories(db)
+            guided_choices = get_main_choices(all_categories)
 
         # Use AI-generated message if available, fallback to templates
         ai_message = analysis.get("response_message")
@@ -337,7 +308,7 @@ class TicketWorkflow:
         else:
             message_to_user = context_detector.get_clarification_message(
                 attempt=attempts,
-                detected_context=detected_context,
+                detected_context=None,
             )
             if clarification_question and attempts > 0:
                 message_to_user += f"\n\n💬 *{clarification_question}*"
@@ -348,7 +319,7 @@ class TicketWorkflow:
             "action": "too_vague",
             "message": message_to_user,
             "summary": None,
-            "suggestion_metadata": suggestion_metadata,
+            "suggestion_metadata": None,
             "clarification_attempts": attempts,
             "guided_choices": guided_choices,
             "expires_at": session.expires_at.isoformat()

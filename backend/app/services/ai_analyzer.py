@@ -159,6 +159,15 @@ Génère un message NATUREL et CONTEXTUEL pour l'utilisateur (2-4 phrases max, e
 - Ne répète JAMAIS le même message si conversation en cours — varie ton style
 - Termine par une action claire: confirmer, préciser, ou répondre à ta question
 
+IMPORTANT — "suggested_choices" (si confiance < 0.60):
+Génère 3-5 choix cliquables CONTEXTUELS pour aider l'utilisateur à préciser son problème.
+- Chaque choix: {{"label": "<texte court>", "icon": "<emoji>"}}
+- Les choix doivent être liés au message de l'utilisateur, PAS des catégories génériques
+- Si le message mentionne un appareil, propose des sous-problèmes spécifiques à cet appareil
+- Si le message est très vague, propose les grandes familles de problèmes IT
+- Ajoute toujours un choix "Autre problème" avec l'icône 🔧 en dernier
+- Si confiance >= 0.60: mettre null (pas besoin de choix, le problème est suffisamment compris)
+
 RÉPONSE JSON ATTENDUE :
 {{
   "suggested_category_id": <int ou null>,
@@ -181,7 +190,11 @@ RÉPONSE JSON ATTENDUE :
   }},
   "missing_info": ["<info1>", "<info2>", ...],
   "clarification_question": "<string ou null>",
-  "response_message": "<string — message naturel pour l'utilisateur>"
+  "response_message": "<string — message naturel pour l'utilisateur>",
+  "suggested_choices": [
+    {{"label": "<texte court>", "icon": "<emoji>"}},
+    ...
+  ] ou null
 }}
 """
         try:
