@@ -146,10 +146,7 @@ def get_sub_choices(categories: List[Dict], parent_id: int) -> List[Dict]:
 
 
 def find_parent_by_name(categories: List[Dict], parent_name: str) -> Optional[Dict]:
-    """
-    Trouve une category parent (level 1) par son nom exact.
-    Trouve une categorie parent (level 1) par son nom exact.
-    """
+    """Trouve une categorie parent (level 1) par son nom exact."""
     return next(
         (c for c in categories if c.get("name") == parent_name and c.get("level") == 1),
         None,

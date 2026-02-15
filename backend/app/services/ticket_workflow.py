@@ -229,10 +229,7 @@ class TicketWorkflow:
             guided_choices = None
             ai_choices = analysis.get("suggested_choices")
             if ai_choices and isinstance(ai_choices, list) and action == "ask_clarification":
-                guided_choices = [
-                    {"id": f"dynamic_{i}", "label": c.get("label", ""), "icon": c.get("icon", "📋")}
-                    for i, c in enumerate(ai_choices)
-                ]
+                guided_choices = self._format_ai_choices(ai_choices)
 
             return {
                 "session_id": session.id,
@@ -289,10 +286,7 @@ class TicketWorkflow:
         # Use AI-generated choices if available, fallback to DB categories
         ai_choices = analysis.get("suggested_choices")
         if ai_choices and isinstance(ai_choices, list):
-            guided_choices = [
-                {"id": f"dynamic_{i}", "label": c.get("label", ""), "icon": c.get("icon", "📋")}
-                for i, c in enumerate(ai_choices)
-            ]
+            guided_choices = self._format_ai_choices(ai_choices)
         else:
             all_categories = categories or self._get_categories(db)
             guided_choices = get_main_choices(all_categories)
@@ -401,13 +395,15 @@ class TicketWorkflow:
             "type": "ticket_created",
             "ticket_id": ticket.id,
             "ticket_number": ticket.ticket_number,
+            "glpi_ticket_id": None,
             "title": ticket.title,
             "status": ticket.status,
             "priority": ticket.priority,
             "category_name": default_category.name,
             "created_at": ticket.created_at.isoformat(),
             "ready_for_L1": False,
-            "escalated_to_human": True,  # NOUVEAU FLAG
+            "synced_to_glpi": False,
+            "escalated_to_human": True,
             "message": friendly_message
         }
     
@@ -738,6 +734,14 @@ class TicketWorkflow:
         else:
             return "too_vague"
     
+    @staticmethod
+    def _format_ai_choices(ai_choices: list) -> List[Dict]:
+        """Convertit les choix IA en format guided_choices pour le frontend."""
+        return [
+            {"id": f"dynamic_{i}", "label": c.get("label", ""), "icon": c.get("icon", "📋")}
+            for i, c in enumerate(ai_choices)
+        ]
+
     def _generate_message(
         self,
         action: str,
@@ -1028,7 +1032,6 @@ class TicketWorkflow:
             seq_num = 1
         
         ticket_number = f"TKT-{current_year}-{seq_num:05d}"
-        # ALSO REMOVE: db.close()  <-- Don't close the session here!
         return ticket_number
 # Instance globale
 ticket_workflow = TicketWorkflow()

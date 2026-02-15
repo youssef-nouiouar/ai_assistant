@@ -33,3 +33,9 @@ backend/migrations/
 
 backend/run_scoring_test.py
 INTELLIGENCE_IMPROVEMENT_TASKS.md
+*.md
+*.txt
+*.pdf
+*.log
+*.docx
+*.xlsx

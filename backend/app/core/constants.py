@@ -133,13 +133,7 @@ class Messages:
         ),
     ]
 
-    # ================================================================
-    # Anciens messages (compatibilité)
-    # ================================================================
-    AUTO_VALIDATE_MESSAGE = AUTO_VALIDATE_VARIATIONS[0]
-    CONFIRM_SUMMARY_MESSAGE = CONFIRM_SUMMARY_VARIATIONS[0]
-    ASK_CLARIFICATION_MESSAGE = ASK_CLARIFICATION_VARIATIONS[0]
-    TOO_VAGUE_MESSAGE = TOO_VAGUE_VARIATIONS[0]
+    # Fallback pour création ticket sans GLPI
     TICKET_CREATED_MESSAGE = TICKET_CREATED_VARIATIONS[0]
 
     @classmethod
@@ -193,49 +187,6 @@ class Messages:
         "😕 **Désolé, je n'ai pas pu traiter votre précision.**\n\n"
         "Veuillez réessayer. Si le problème persiste, décrivez votre problème de manière plus détaillée."
     )
-
-
-# ========================================================================
-# QUESTIONS DE CLARIFICATION PAR TYPE D'INFO MANQUANTE
-# ========================================================================
-
-class ClarificationQuestions:
-    """
-    Questions ciblées selon le type d'information manquante
-    """
-    
-    QUESTIONS_MAP = {
-        "device_type": "Quel appareil est concerné ? (PC, imprimante, téléphone, application...)",
-        "problem_type": "Quel est le problème exact ? (Ne fonctionne pas, lent, bloqué, erreur...)",
-        "onset": "Depuis quand le problème se produit-il ? (Aujourd'hui, depuis quelques jours...)",
-        "location": "Où se situe l'appareil concerné ? (Bureau, salle, bâtiment...)",
-        "error_message": "Y a-t-il un message d'erreur affiché ? Si oui, lequel ?",
-        "os": "Quel système d'exploitation utilisez-vous ? (Windows 10, 11, Mac...)",
-        "frequency": "Le problème est-il permanent ou intermittent ?",
-        "recent_changes": "Avez-vous installé ou modifié quelque chose récemment ?",
-        "category": "De quel type de problème s'agit-il ? (Matériel, logiciel, réseau, accès...)"
-    }
-    
-    @classmethod
-    def get_questions_for_missing_info(cls, missing_info: List[str]) -> List[str]:
-        """
-        Génère des questions ciblées pour les informations manquantes
-        """
-        questions = []
-        for info in missing_info:
-            question = cls.QUESTIONS_MAP.get(info.lower())
-            if question:
-                questions.append(f"• {question}")
-        
-        # Si pas de correspondance, question générique
-        if not questions:
-            questions = [
-                "• Quel est l'appareil ou l'application concerné ?",
-                "• Quel est le problème exact que vous rencontrez ?",
-                "• Depuis quand cela se produit-il ?"
-            ]
-        
-        return questions
 
 
 # ========================================================================
