@@ -126,7 +126,7 @@ class TicketWorkflow:
                     previous_analysis = parent.ai_summary
                 # Construire l'historique de conversation
                 conversation_history = list(parent.conversation_history or [])
-                prev_question = (parent.ai_summary or {}).get("clarification_question")
+                prev_question = (parent.ai_summary or {}).get("response_message")
                 if prev_question:
                     conversation_history.append({"role": "assistant", "content": prev_question})
                 conversation_history.append({"role": "user", "content": message})
@@ -189,7 +189,6 @@ class TicketWorkflow:
                 "symptoms": analysis.get("extracted_symptoms", []),
                 "extracted_info": analysis.get("extracted_info", {}),
                 "missing_info": missing_info,
-                "clarification_question": analysis.get("clarification_question"),
                 "response_message": analysis.get("response_message"),
                 "original_message": message
             }
@@ -224,7 +223,6 @@ class TicketWorkflow:
                 action=action,
                 summary=smart_summary,
                 missing_info=analysis.get("missing_info", []),
-                attempts=attempts
             )
 
             # AI-generated choices for ask_clarification
@@ -244,7 +242,6 @@ class TicketWorkflow:
                 "summary": smart_summary,
                 "clarification_attempts": attempts,
                 "guided_choices": guided_choices,
-                "suggestion_metadata": None,
                 "expires_at": session.expires_at.isoformat()
             }
             
@@ -272,10 +269,9 @@ class TicketWorkflow:
         Phase 2 : Ajout de choix guidés cliquables
         """
         analysis = analysis or {}
-        clarification_question = analysis.get("clarification_question")
-        print("\n clarification_question (inside function too_vague):", clarification_question)
+        ai_message = analysis.get("response_message")
         session = AnalysisSession(
-            ai_summary={"clarification_question": clarification_question} if clarification_question else None,
+            ai_summary={"response_message": ai_message} if ai_message else None,
             original_message=message,
             confidence_score="0.0",
             status="too_vague",
@@ -302,7 +298,6 @@ class TicketWorkflow:
             guided_choices = get_main_choices(all_categories)
 
         # Use AI-generated message if available, fallback to templates
-        ai_message = analysis.get("response_message")
         if ai_message:
             message_to_user = ai_message
         else:
@@ -310,8 +305,6 @@ class TicketWorkflow:
                 attempt=attempts,
                 detected_context=None,
             )
-            if clarification_question and attempts > 0:
-                message_to_user += f"\n\n💬 *{clarification_question}*"
 
         return {
             "session_id": session.id,
@@ -319,7 +312,6 @@ class TicketWorkflow:
             "action": "too_vague",
             "message": message_to_user,
             "summary": None,
-            "suggestion_metadata": None,
             "clarification_attempts": attempts,
             "guided_choices": guided_choices,
             "expires_at": session.expires_at.isoformat()
@@ -751,7 +743,6 @@ class TicketWorkflow:
         action: str,
         summary: Dict,
         missing_info: List[str] = None,
-        attempts: int = 0
     ) -> str:
         """
         Génère le message utilisateur.
@@ -770,11 +761,7 @@ class TicketWorkflow:
             return Messages.get("confirm_summary", summary=self._format_summary_display(summary))
 
         elif action == "ask_clarification":
-            clarification_question = summary.get("clarification_question",
-                                                  "Pouvez-vous fournir plus de détails ?")
-            if attempts > 0:
-                return f"🔍 **Encore une précision :**\n\n{clarification_question}"
-            return Messages.get("ask_clarification", missing_info_list=clarification_question)
+            return Messages.get("ask_clarification", missing_info_list="Pouvez-vous fournir plus de détails ?")
 
         elif action == "too_vague":
             return Messages.get("too_vague")

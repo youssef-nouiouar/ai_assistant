@@ -6,7 +6,6 @@ from typing import Dict, List, Optional
 from openai import OpenAI
 import json
 from app.core.config import settings
-import hashlib
 import asyncio
 import random
 
@@ -19,9 +18,6 @@ class AIAnalyzer:
             api_key=settings.OPENROUTER_API_KEY,
             base_url="https://openrouter.ai/api/v1"
         )
-         
-        # Cache local (optionnel)
-        self.local_cache = {}
 
     # ----------------------------------------------------------------------
     # ANALYSE PRINCIPALE
@@ -33,14 +29,6 @@ class AIAnalyzer:
         previous_analysis: Optional[Dict] = None,
         conversation_history: Optional[List[Dict]] = None
     ) -> Dict:
-
-        # --- Cache: skip si conversation en cours (contexte différent à chaque tour)
-        has_history = conversation_history and len(conversation_history) > 1
-        cache_key = hashlib.sha256(
-            f"{message}|{len(conversation_history or [])}".encode()
-        ).hexdigest()
-        if not has_history and cache_key in self.local_cache:
-            return self.local_cache[cache_key]
 
         categories_text = "\n".join([
             f"{cat['id']} | {cat['name']} | {cat['abbreviation']}"
@@ -189,7 +177,6 @@ RÉPONSE JSON ATTENDUE :
     "onset": "<string ou null>"
   }},
   "missing_info": ["<info1>", "<info2>", ...],
-  "clarification_question": "<string ou null>",
   "response_message": "<string — message naturel pour l'utilisateur>",
   "suggested_choices": [
     {{"label": "<texte court>", "icon": "<emoji>"}},
@@ -206,9 +193,6 @@ RÉPONSE JSON ATTENDUE :
                 None
             )
             result["suggested_category_name"] = category["name"] if category else "Unknown"
-
-            # Stockage en cache
-            self.local_cache[cache_key] = result
 
             return result
 
@@ -230,7 +214,7 @@ RÉPONSE JSON ATTENDUE :
                 "suggested_priority": "medium",
                 "extracted_info": {},
                 "missing_info": ["AI processing error"],
-                "clarification_question": "Pouvez-vous reformuler votre demande ?"
+                "response_message": "Désolé, j'ai rencontré un problème technique. Pouvez-vous reformuler votre demande ?"
             }
 
     # ----------------------------------------------------------------------

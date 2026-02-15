@@ -101,31 +101,16 @@ class GuidedChoiceSchema(BaseModel):
     icon: str = ""
 
 
-class SuggestionMetadata(BaseModel):
-    """Métadonnées des suggestions intelligentes"""
-    reasoning: Optional[str] = None  # Raisonnement transparent pour l'utilisateur
-    should_regenerate: bool = False  # Indique si les suggestions ont été régénérées
-    regeneration_reason: Optional[str] = None  # Raison de la régénération
-    relevance_score: float = 100.0  # Score de pertinence (0-100)
-
-
 class AnalysisResponse(BaseModel):
-    """
-    Réponse après analyse (flexible)
-
-    Phase 2 : Ajout de guided_choices et show_examples
-    Phase 3 : Ajout de suggestion_metadata pour raisonnement transparent
-    """
+    """Réponse après analyse"""
     session_id: Optional[str] = None  # None pour greeting/non_it
     type: str = "smart_summary"
     action: str  # auto_validate, confirm_summary, ask_clarification, too_vague, greeting, non_it
     message: str
     summary: Optional[SmartSummary] = None  # Peut être None si too_vague
-    clarification_question: Optional[str] = None  # Question ciblée
     clarification_attempts: int = 0  # Nombre de tentatives
-    guided_choices: Optional[List[GuidedChoiceSchema]] = None  # Phase 2 : Choix cliquables
-    suggestion_metadata: Optional[SuggestionMetadata] = None  # Phase 3 : Raisonnement transparent
-    show_examples: Optional[bool] = None  # Phase 1 : Afficher exemples
+    guided_choices: Optional[List[GuidedChoiceSchema]] = None  # Choix cliquables
+    show_examples: Optional[bool] = None  # Afficher exemples
     expires_at: Optional[str] = None  # None pour greeting/non_it
 
 
