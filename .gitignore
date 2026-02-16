@@ -39,3 +39,5 @@ INTELLIGENCE_IMPROVEMENT_TASKS.md
 *.log
 *.docx
 *.xlsx
+
+tmpclaude*
