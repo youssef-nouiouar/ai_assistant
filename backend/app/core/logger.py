@@ -74,6 +74,10 @@ class StructuredLogger:
         )
     
     @staticmethod
+    def log_info(event_type: str, details: str):
+        logger.info(f"type={event_type} | details={details}")
+
+    @staticmethod
     def log_error(error_type: str, details: str):
         logger.error(f"ERROR | type={error_type} | details={details}")
 

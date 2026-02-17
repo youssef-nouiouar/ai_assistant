@@ -1,14 +1,13 @@
 # ============================================================================
 # FICHIER : backend/app/services/glpi_sync_service.py
-# DESCRIPTION : Synchronisation bidirectionnelle GLPI ↔ Notre DB
+# DESCRIPTION : Synchronisation GLPI -> Notre DB via webhook
 # ============================================================================
 
 from sqlalchemy.orm import Session
-from typing import List, Dict, Optional
-from datetime import datetime, timedelta
+from typing import Dict, Optional
+from datetime import datetime
 
 from app.models.ticket import Ticket
-from app.models.user import User
 from app.integrations.glpi_client import get_glpi_client, GLPIClientError
 from app.integrations.glpi_mapping import GLPIMapping
 from app.core.logger import structured_logger
@@ -16,285 +15,216 @@ from app.core.logger import structured_logger
 
 class GLPISyncService:
     """
-    Service de synchronisation bidirectionnelle avec GLPI
-    
-    Fonctionnalités:
-    1. Pull: GLPI → Notre DB (récupérer mises à jour)
-    2. Push: Notre DB → GLPI (envoyer modifications)
-    3. Sync complète: Synchroniser tous les tickets
+    Service de synchronisation avec GLPI.
+
+    Utilise les données du webhook directement (pas de call API supplémentaire).
+    Push vers GLPI lors de la création/modification de tickets côté backend.
     """
-    
+
     def __init__(self):
-        self.glpi_client = get_glpi_client()
-    
+        self._client = None
+
+    @property
+    def glpi_client(self):
+        """Lazy init to avoid import-time errors."""
+        if self._client is None:
+            self._client = get_glpi_client()
+        return self._client
+
     # ========================================================================
-    # PULL: GLPI → Notre DB
+    # PULL: Sync from webhook payload (NO extra API call)
     # ========================================================================
-    
-    def sync_ticket_from_glpi(
+
+    def sync_from_webhook_payload(
         self,
         db: Session,
-        glpi_ticket_id: int
+        glpi_ticket_id: int,
+        payload: Dict,
     ) -> Optional[Ticket]:
         """
-        Synchronise un ticket depuis GLPI vers notre DB
-        
+        Synchronise un ticket en utilisant les données du webhook directement.
+
         Args:
             db: Session DB
             glpi_ticket_id: ID du ticket dans GLPI
-        
-        Returns:
-            Ticket mis à jour ou None
+            payload: Données reçues du webhook (déjà parsées)
         """
-        try:
-            # Récupérer le ticket depuis GLPI
-            glpi_ticket = self.glpi_client.get_ticket(glpi_ticket_id)
-            
-            # Trouver le ticket dans notre DB
-            ticket = db.query(Ticket).filter(
-                Ticket.glpi_ticket_id == glpi_ticket_id
-            ).first()
-            
-            if not ticket:
-                structured_logger.log_error(
-                    "GLPI_SYNC_TICKET_NOT_FOUND",
-                    f"Ticket GLPI {glpi_ticket_id} non trouvé en DB"
-                )
-                return None
-            
-            # Mettre à jour les champs
-            updates_made = False
-            
-            # Statut
-            new_status = GLPIMapping.get_our_status(glpi_ticket.get("status", 1))
-            if ticket.status != new_status:
-                ticket.status = new_status
-                ticket.glpi_status = glpi_ticket.get("status")
-                updates_made = True
-            
-            # Priorité
-            new_priority = GLPIMapping.get_our_priority(glpi_ticket.get("priority", 3))
-            if ticket.priority != new_priority:
-                ticket.priority = new_priority
-                updates_made = True
-            
-            # Date de résolution
-            if glpi_ticket.get("solvedate") and not ticket.resolved_at:
-                ticket.resolved_at = datetime.fromisoformat(
-                    glpi_ticket["solvedate"].replace("Z", "+00:00")
-                )
-                updates_made = True
-            
-            # Date de clôture
-            if glpi_ticket.get("closedate") and not ticket.closed_at:
-                ticket.closed_at = datetime.fromisoformat(
-                    glpi_ticket["closedate"].replace("Z", "+00:00")
-                )
-                updates_made = True
-            
-            if updates_made:
-                ticket.glpi_last_update = datetime.now()
-                db.commit()
-                db.refresh(ticket)
-                
-                structured_logger.log_error(
-                    "GLPI_SYNC_UPDATED",
-                    f"Ticket {ticket.ticket_number} synchronisé depuis GLPI"
-                )
-            
-            return ticket
-            
-        except GLPIClientError as e:
-            structured_logger.log_error("GLPI_SYNC_ERROR", str(e))
+        ticket = db.query(Ticket).filter(
+            Ticket.glpi_ticket_id == glpi_ticket_id
+        ).first()
+
+        if not ticket:
+            structured_logger.log_info(
+                "GLPI_SYNC_NOT_FOUND",
+                f"Ticket GLPI {glpi_ticket_id} not in local DB"
+            )
             return None
-    
-    def sync_all_tickets_from_glpi(
-        self,
-        db: Session,
-        since: Optional[datetime] = None
-    ) -> Dict[str, int]:
-        """
-        Synchronise tous les tickets depuis GLPI
-        
-        Args:
-            db: Session DB
-            since: Synchroniser seulement les tickets modifiés depuis cette date
-        
-        Returns:
-            Statistiques de synchronisation
-        """
-        stats = {
-            "total": 0,
-            "updated": 0,
-            "errors": 0
-        }
-        
-        # Récupérer tous nos tickets synchronisés avec GLPI
-        query = db.query(Ticket).filter(
-            Ticket.synced_to_glpi == True,
-            Ticket.glpi_ticket_id.isnot(None)
-        )
-        print(f"Tickets à synchroniser depuis GLPI: {query.count()}")
-        if since:
-            query = query.filter(Ticket.glpi_last_update < since)
-        
-        tickets = query.all()
-        stats["total"] = len(tickets)
-        
-        structured_logger.log_error(
-            "GLPI_SYNC_START",
-            f"Démarrage sync de {stats['total']} tickets depuis GLPI"
-        )
-        
-        for ticket in tickets:
+
+        changes = []
+
+        # Status
+        new_status = self._extract_status_from_payload(payload)
+        if new_status and ticket.status != new_status:
+            changes.append(f"status: {ticket.status} -> {new_status}")
+            ticket.status = new_status
+
+        # Priority
+        new_priority = self._extract_priority_from_payload(payload)
+        if new_priority and ticket.priority != new_priority:
+            changes.append(f"priority: {ticket.priority} -> {new_priority}")
+            ticket.priority = new_priority
+
+        # Title
+        new_title = payload.get("title", "")
+        if new_title and new_title != ticket.title:
+            changes.append(f"title updated")
+            ticket.title = new_title[:200]
+
+        # Closing date
+        close_date = payload.get("closing_date") or payload.get("closedate")
+        if close_date and close_date.strip() and not ticket.closed_at:
             try:
-                result = self.sync_ticket_from_glpi(db, ticket.glpi_ticket_id)
-                if result:
-                    stats["updated"] += 1
-            except Exception as e:
-                stats["errors"] += 1
-                structured_logger.log_error(
-                    "GLPI_SYNC_TICKET_ERROR",
-                    f"Ticket {ticket.ticket_number}: {str(e)}"
+                ticket.closed_at = datetime.fromisoformat(
+                    close_date.replace("Z", "+00:00")
                 )
-        
-        structured_logger.log_error(
-            "GLPI_SYNC_COMPLETE",
-            f"Sync terminée: {stats['updated']}/{stats['total']} mis à jour, {stats['errors']} erreurs"
-        )
-        
-        return stats
-    
+                changes.append("closed_at set")
+            except (ValueError, AttributeError):
+                pass
+
+        # Update sync timestamp
+        ticket.glpi_last_update = datetime.now()
+
+        if changes:
+            db.commit()
+            db.refresh(ticket)
+            structured_logger.log_info(
+                "GLPI_SYNC_WEBHOOK",
+                f"Ticket {ticket.ticket_number} synced from webhook: {', '.join(changes)}"
+            )
+        else:
+            db.commit()
+
+        return ticket
+
     # ========================================================================
-    # PUSH: Notre DB → GLPI
+    # PUSH: Notre DB -> GLPI
     # ========================================================================
-    
+
     def push_ticket_to_glpi(
         self,
         db: Session,
         ticket_id: int,
-        force: bool = False
     ) -> bool:
-        """
-        Pousse les modifications d'un ticket vers GLPI
-        
-        Args:
-            db: Session DB
-            ticket_id: ID du ticket dans notre DB
-            force: Forcer la synchronisation même si déjà sync
-        
-        Returns:
-            True si succès
-        """
+        """Pousse les modifications d'un ticket vers GLPI."""
         ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
-        
-        if not ticket:
+
+        if not ticket or not ticket.glpi_ticket_id:
             return False
-        
-        if not ticket.glpi_ticket_id and not force:
-            # Ticket pas encore dans GLPI
-            return False
-        
+
+        # Conflict check: GLPI modified more recently -> skip push
+        if ticket.glpi_last_update and ticket.updated_at:
+            if ticket.glpi_last_update > ticket.updated_at:
+                return True
+
+        updates = {}
+
+        if ticket.status:
+            updates["status"] = GLPIMapping.get_glpi_status(ticket.status)
+        if ticket.priority:
+            updates["priority"] = GLPIMapping.get_glpi_priority(ticket.priority)
+        if ticket.title:
+            updates["name"] = ticket.title
+
+        if not updates:
+            return True
+
         try:
-            # Préparer les mises à jour
-            updates = {}
-            
-            # Statut
-            if ticket.status:
-                updates["status"] = GLPIMapping.get_glpi_status(ticket.status)
-            
-            # Priorité
-            if ticket.priority:
-                updates["priority"] = GLPIMapping.get_glpi_priority(ticket.priority)
-            
-            # Titre
-            if ticket.title:
-                updates["name"] = ticket.title
-            
-            # Description (attention: peut écraser)
-            # updates["content"] = ticket.description  # Décommentez si nécessaire
-            
-            if not updates:
-                return True  # Rien à mettre à jour
-            
-            # Envoyer à GLPI
             self.glpi_client.update_ticket(
                 ticket_id=ticket.glpi_ticket_id,
-                updates=updates
+                updates=updates,
             )
-            
             ticket.glpi_sync_at = datetime.now()
             db.commit()
-            
-            structured_logger.log_error(
-                "GLPI_PUSH_SUCCESS",
-                f"Ticket {ticket.ticket_number} poussé vers GLPI"
+            structured_logger.log_info(
+                "GLPI_SYNC_PUSHED",
+                f"Ticket {ticket.ticket_number} pushed to GLPI: {list(updates.keys())}"
             )
-            
             return True
-            
         except GLPIClientError as e:
-            structured_logger.log_error("GLPI_PUSH_ERROR", str(e))
+            structured_logger.log_error("GLPI_SYNC_PUSH_ERROR", str(e))
             return False
-    
+
     # ========================================================================
-    # SYNCHRONISATION COMPLÈTE
+    # HELPERS
     # ========================================================================
-    
-    def full_sync(
-        self,
-        db: Session,
-        direction: str = "both"  # "pull", "push", "both"
-    ) -> Dict[str, any]:
-        """
-        Synchronisation complète bidirectionnelle
-        
-        Args:
-            db: Session DB
-            direction: Direction de la sync
-        
-        Returns:
-            Statistiques complètes
-        """
-        stats = {
-            "pull": None,
-            "push": None,
-            "started_at": datetime.now().isoformat()
+
+    def _extract_status_from_payload(self, payload: Dict) -> Optional[str]:
+        """Extract status from webhook data (handles both numeric and label)."""
+        raw = payload.get("status")
+        if raw is None:
+            event = payload.get("event", "")
+            if "solved" in event:
+                return "resolved"
+            if "closed" in event:
+                return "closed"
+            return None
+
+        # Numeric
+        try:
+            return GLPIMapping.get_our_status(int(raw))
+        except (ValueError, TypeError):
+            pass
+
+        # String label (e.g. "Pending", "Processing (assigned)")
+        glpi_int = self._status_label_to_int(str(raw))
+        if glpi_int:
+            return GLPIMapping.get_our_status(glpi_int)
+
+        return None
+
+    def _extract_priority_from_payload(self, payload: Dict) -> Optional[str]:
+        """Extract priority from webhook data (handles both numeric and label)."""
+        raw = payload.get("priority")
+        if raw is None:
+            return None
+
+        # Numeric
+        try:
+            return GLPIMapping.get_our_priority(int(raw))
+        except (ValueError, TypeError):
+            pass
+
+        # String label
+        label_map = {
+            "very low": "very_low",
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+            "very high": "critical",
+            "major": "major",
         }
-        
-        # Pull: GLPI → Notre DB
-        if direction in ["pull", "both"]:
-            structured_logger.log_error("GLPI_FULL_SYNC", "Démarrage PULL (GLPI → DB)")
-            stats["pull"] = self.sync_all_tickets_from_glpi(db)
-        
-        # Push: Notre DB → GLPI
-        if direction in ["push", "both"]:
-            structured_logger.log_error("GLPI_FULL_SYNC", "Démarrage PUSH (DB → GLPI)")
-            
-            push_stats = {"total": 0, "updated": 0, "errors": 0}
-            
-            # Récupérer tickets modifiés récemment (pas sync depuis 1h)
-            one_hour_ago = datetime.now() - timedelta(hours=1)
-            tickets = db.query(Ticket).filter(
-                Ticket.synced_to_glpi == True,
-                Ticket.glpi_ticket_id.isnot(None),
-                Ticket.updated_at > one_hour_ago
-            ).all()
-            
-            push_stats["total"] = len(tickets)
-            
-            for ticket in tickets:
-                try:
-                    if self.push_ticket_to_glpi(db, ticket.id):
-                        push_stats["updated"] += 1
-                except Exception as e:
-                    push_stats["errors"] += 1
-            
-            stats["push"] = push_stats
-        
-        stats["completed_at"] = datetime.now().isoformat()
-        
-        return stats
+        return label_map.get(str(raw).lower().strip())
+
+    @staticmethod
+    def _status_label_to_int(label: str) -> Optional[int]:
+        """Convert GLPI status label to numeric ID."""
+        label_map = {
+            "new": 1,
+            "nouveau": 1,
+            "processing (assigned)": 2,
+            "assigned": 2,
+            "en cours (attribué)": 2,
+            "processing (planned)": 3,
+            "planned": 3,
+            "en cours (planifié)": 3,
+            "pending": 4,
+            "en attente": 4,
+            "solved": 5,
+            "résolu": 5,
+            "closed": 6,
+            "clos": 6,
+        }
+        return label_map.get(label.lower().strip())
 
 
 # Instance globale

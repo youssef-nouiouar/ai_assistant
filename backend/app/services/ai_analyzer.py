@@ -139,7 +139,7 @@ CALCUL FINAL:
   Minimum possible = 0.00 + 0.00 + 0.05 + 0.00 = 0.05
 
 IMPORTANT — "response_message":
-Génère un message NATUREL et CONTEXTUEL pour l'utilisateur (2-4 phrases max, en français).
+Génère un message NATUREL et CONTEXTUEL pour l'utilisateur (2-4 phrases max).
 - Si confiance élevée (>=0.60): résume ce que tu as compris de SON problème spécifique et demande confirmation
 - Si confiance moyenne (0.30-0.60): montre que tu as compris partiellement et pose ta question de clarification
 - Si confiance basse (<0.30): montre de l'empathie et pose une question ouverte pour mieux comprendre

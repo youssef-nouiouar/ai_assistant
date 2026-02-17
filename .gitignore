@@ -41,3 +41,4 @@ INTELLIGENCE_IMPROVEMENT_TASKS.md
 *.xlsx
 
 tmpclaude*
+migrations/
