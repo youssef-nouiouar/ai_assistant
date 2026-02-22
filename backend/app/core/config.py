@@ -38,6 +38,8 @@ class Settings(BaseSettings):
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    # API key for workflow endpoints (leave empty to disable check)
+    API_KEY: str = ""
     
     # CORS
     CORS_ORIGINS: List[str] = ["http://localhost:5173", "http://localhost:3000"]
@@ -61,6 +63,10 @@ class Settings(BaseSettings):
 
     # Webhook secret pour la vérification des signatures
     GLPI_WEBHOOK_SECRET: str = ""  # Générer avec: openssl rand -hex 32
+
+    # Uploads
+    UPLOAD_DIR: str = "./uploads"
+    MAX_UPLOAD_MB: int = 10
 
     class Config:
         env_file = ".env"

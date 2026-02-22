@@ -813,13 +813,17 @@ class TicketWorkflow:
             try:
                 glpi_client = get_glpi_client()
                 
+                # Récupérer le glpi_user_id depuis notre table Users
+                glpi_user_id = user.glpi_user_id if user else None
+                
                 # Créer le ticket dans GLPI
                 glpi_ticket = await glpi_client.create_ticket(
                     title=title,
                     description=f"{description}\n\n---\nMessage original:\n{original_message}",
                     category_id=category_id,
                     priority=priority,
-                    user_email=user_email
+                    user_email=user_email,
+                    requester_id=glpi_user_id
                 )
                 
                 glpi_ticket_id = glpi_ticket.get("id")

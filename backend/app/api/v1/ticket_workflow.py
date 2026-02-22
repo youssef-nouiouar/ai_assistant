@@ -22,6 +22,7 @@ from app.schemas.ticket_workflow import (
 import time
 from app.services.ticket_workflow import ticket_workflow
 from app.services.input_guard import input_guard
+from app.models.user import User
 from app.core.exceptions import (
     SessionNotFoundError,
     SessionAlreadyConvertedError,
@@ -29,9 +30,38 @@ from app.core.exceptions import (
     AIAnalysisError,
     InputGuardError,
 )
+from app.core.logger import structured_logger
 
 router = APIRouter()
 limiter = Limiter(key_func=get_remote_address)
+
+
+def _verify_user_email(db: Session, user_email: str | None) -> str | None:
+    """
+    If a user_email is provided, verify it matches a record in the Users table.
+    Returns the validated email or None.  Raises HTTP 403 if the email is
+    not found — preventing impersonation of non-existent identities.
+    """
+    if not user_email:
+        return None
+
+    user = db.query(User).filter(User.email == user_email).first()
+    if not user:
+        structured_logger.log_error(
+            "USER_EMAIL_INVALID",
+            f"Rejected unknown user_email: {user_email}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Adresse email inconnue : {user_email}. "
+                   "Veuillez utiliser votre adresse email professionnelle."
+        )
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Ce compte utilisateur est désactivé."
+        )
+    return user_email
 
 
 @router.post("/analyze")
@@ -52,11 +82,12 @@ async def analyze_message(
     """
     try:
         clean_message = input_guard.validate(data.message, field="message")
+        verified_email = _verify_user_email(db, data.user_email)
         started_at = time.time()
         result = await ticket_workflow.analyze_message(
             db=db,
             message=clean_message,
-            user_email=data.user_email
+            user_email=verified_email
         )
         ended_at = time.time()
         print("\nAnalysis Result:", result, "Time taken:", ended_at - started_at)
@@ -208,11 +239,12 @@ async def restart_from(
     """
     try:
         clean_edited = input_guard.validate(data.edited_message, field="edited_message")
+        verified_email = _verify_user_email(db, data.user_email)
         result = await ticket_workflow.handle_restart_from(
             db=db,
             session_id=data.session_id,
             edited_message=clean_edited,
-            user_email=data.user_email
+            user_email=verified_email
         )
 
         if result.get("type") == "ticket_created":

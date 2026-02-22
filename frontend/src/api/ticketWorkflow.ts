@@ -143,6 +143,24 @@ export class TicketWorkflowAPI {
     }
   }
 
+  static async uploadImage(
+    file: File
+  ): Promise<{ file_url: string; file_name: string; extracted_text: string }> {
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await api.post('/upload-image', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 120000, // 2 min — OCR can be slow
+      });
+      return response.data;
+    } catch (error) {
+      this.handleError(error);
+      throw error;
+    }
+  }
+
   private static handleError(error: unknown) {
     if (axios.isAxiosError(error)) {
       const axiosError = error as AxiosError<any>;

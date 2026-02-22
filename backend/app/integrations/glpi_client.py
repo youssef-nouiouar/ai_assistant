@@ -114,10 +114,20 @@ class GLPIClient:
         category_id: Optional[int] = None,
         priority: str = "medium",
         user_email: Optional[str] = None,
+        requester_id: Optional[int] = None,
         urgency: Optional[int] = None,
         impact: Optional[int] = None
     ) -> Dict:
-        """Crée un ticket dans GLPI"""
+        """
+        Crée un ticket dans GLPI.
+
+        Si `requester_id` (= glpi_user_id depuis notre table Users) est fourni,
+        il est injecté directement via `_users_id_requester` dans le payload de
+        création — c'est la méthode la plus fiable (cf. test notebook).
+
+        Sinon, si seul `user_email` est fourni, on tombe dans le fallback
+        `_add_ticket_requester` qui cherche / crée l'utilisateur dans GLPI.
+        """
         await self.ensure_session()
 
         payload = GLPIMapping.build_ticket_payload(
@@ -132,6 +142,14 @@ class GLPIClient:
         if impact:
             payload["input"]["impact"] = impact
 
+        # ---- Requester inline (preferred, from local DB glpi_user_id) ----
+        if requester_id:
+            payload["input"]["_users_id_requester"] = requester_id
+            structured_logger.log_info(
+                "GLPI_REQUESTER_INLINE",
+                f"Requester ID {requester_id} ajouté au payload de création"
+            )
+
         try:
             response = await self._http.post(
                 f"{self.base_url}/Ticket",
@@ -145,7 +163,9 @@ class GLPIClient:
 
             structured_logger.log_info("GLPI_TICKET_CREATED", f"Ticket GLPI créé: ID={ticket_id}")
 
-            if user_email:
+            # Fallback: if no requester_id was available but we have an email,
+            # try the legacy lookup/auto-create path
+            if not requester_id and user_email:
                 await self._add_ticket_requester(ticket_id, user_email)
 
             return ticket_data
@@ -253,14 +273,39 @@ class GLPIClient:
             return None
 
     async def _add_ticket_requester(self, ticket_id: int, user_email: str):
-        """Ajoute un demandeur à un ticket"""
+        """Ajoute un demandeur à un ticket. Auto-crée l'utilisateur dans GLPI si besoin."""
         user = await self.get_user_by_email(user_email)
 
         if not user:
-            structured_logger.log_error(
+            structured_logger.log_info(
                 "GLPI_USER_NOT_FOUND",
-                f"Utilisateur {user_email} non trouvé dans GLPI"
+                f"Utilisateur {user_email} non trouvé dans GLPI — tentative de création automatique"
             )
+            user = await self._create_user_in_glpi(user_email)
+
+        if not user:
+            # Auto-creation failed — fall back to private followup so technicians
+            # still know who submitted the ticket.
+            structured_logger.log_error(
+                "GLPI_USER_AUTO_CREATE_FAILED",
+                f"Impossible de créer {user_email} dans GLPI — ajout d'un suivi privé en fallback"
+            )
+            try:
+                await self.add_followup(
+                    ticket_id=ticket_id,
+                    content=(
+                        f"⚠️ Demandeur non trouvé dans GLPI et la création "
+                        f"automatique a échoué.\n"
+                        f"Email: {user_email}\n\n"
+                        f"Action requise: créer le compte utilisateur dans GLPI "
+                        f"ou lier manuellement ce ticket à l'utilisateur concerné."
+                    ),
+                    is_private=True,
+                )
+            except Exception as followup_err:
+                structured_logger.log_error(
+                    "GLPI_FALLBACK_FOLLOWUP_ERROR", str(followup_err)
+                )
             return
 
         user_id = user.get("2")
@@ -288,6 +333,56 @@ class GLPIClient:
 
         except httpx.HTTPError as e:
             structured_logger.log_error("GLPI_ADD_REQUESTER_ERROR", str(e))
+
+    async def _create_user_in_glpi(self, email: str) -> Optional[Dict]:
+        """
+        Auto-create a user in GLPI from their email address.
+
+        Derives a plausible name from the email local part (e.g.
+        'jean.dupont@corp.com' -> first='Jean', last='Dupont').
+        Returns the GLPI user dict (with at least key '2' = user id)
+        on success, or None on failure.
+        """
+        await self.ensure_session()
+
+        # Derive first/last name from email local part
+        local_part = email.split("@")[0]
+        name_parts = local_part.replace("_", ".").replace("-", ".").split(".")
+        first_name = name_parts[0].capitalize() if name_parts else local_part
+        last_name = name_parts[1].capitalize() if len(name_parts) > 1 else ""
+
+        payload = {
+            "input": {
+                "name": local_part,              # login
+                "realname": last_name,            # GLPI field for last name
+                "firstname": first_name,
+                "_useremails": [email],           # GLPI magic field to attach email
+            }
+        }
+
+        try:
+            response = await self._http.post(
+                f"{self.base_url}/User",
+                headers=self._get_headers(),
+                json=payload,
+            )
+            response.raise_for_status()
+
+            created_data = response.json()
+            new_user_id = created_data.get("id")
+
+            structured_logger.log_info(
+                "GLPI_USER_CREATED",
+                f"Utilisateur {email} créé dans GLPI: ID={new_user_id}",
+            )
+
+            # Return a dict compatible with _add_ticket_requester expectations
+            # (key "2" holds the user id in GLPI search results)
+            return {"2": new_user_id}
+
+        except httpx.HTTPError as e:
+            structured_logger.log_error("GLPI_CREATE_USER_ERROR", str(e))
+            return None
 
     # ========================================================================
     # CATÉGORIES

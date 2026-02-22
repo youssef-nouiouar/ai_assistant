@@ -3,9 +3,12 @@
 # DESCRIPTION : Point d'entrée de l'application FastAPI
 # ============================================================================
 
+from pathlib import Path
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -44,6 +47,11 @@ app.add_middleware(
 
 # Inclure les routes API v1
 app.include_router(api_router, prefix="/api/v1")
+
+# Serve uploaded files (screenshots, attachments)
+_upload_dir = Path(settings.UPLOAD_DIR)
+_upload_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=str(_upload_dir)), name="uploads")
 
 @app.get("/")
 def read_root():

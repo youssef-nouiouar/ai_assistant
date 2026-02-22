@@ -5,6 +5,8 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { useTicketWorkflow } from '../../hooks/useTicketWorkflow';
+import { TicketWorkflowAPI } from '../../api/ticketWorkflow';
+import { EmailPrompt, getStoredEmail } from './EmailPrompt';
 import { MessageBubble } from './MessageBubble';
 import { SmartSummaryCard } from './SmartSummaryCard';
 import { ActionButtons } from './ActionButtons';
@@ -32,6 +34,12 @@ const RefreshIcon = () => (
 const SendIcon = () => (
   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+  </svg>
+);
+
+const PaperclipIcon = () => (
+  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
   </svg>
 );
 
@@ -86,8 +94,13 @@ export const ChatbotInterface = () => {
   const [inputMessage, setInputMessage] = useState('');
   const [showModificationForm, setShowModificationForm] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
+  const [attachedFile, setAttachedFile] = useState<File | null>(null);
+  const [attachedPreview, setAttachedPreview] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [userEmail, setUserEmail] = useState<string | null>(() => getStoredEmail());
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const {
     messages,
@@ -121,17 +134,38 @@ export const ChatbotInterface = () => {
   // Gérer l'envoi du message initial (ou édition en mode edit)
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputMessage.trim() || isLoading) return;
+    if ((!inputMessage.trim() && !attachedFile) || isLoading || isUploading) return;
 
-    const message = inputMessage.trim();
+    let message = inputMessage.trim();
+    let imageRef = '';
     setInputMessage('');
     const editMode = isEditMode;
     setIsEditMode(false);
 
+    // Upload attached image first, prepend OCR text
+    if (attachedFile) {
+      setIsUploading(true);
+      try {
+        const upload = await TicketWorkflowAPI.uploadImage(attachedFile);
+        if (upload.extracted_text) {
+          message = `[Texte extrait de la capture d'écran]\n${upload.extracted_text}\n\n${message}`;
+        }
+        imageRef = `\n\n📎 Image jointe : ${upload.file_url}`;
+      } catch {
+        // Upload failed — continue without the image
+      } finally {
+        setAttachedFile(null);
+        setAttachedPreview(null);
+        setIsUploading(false);
+      }
+    }
+
+    const fullMessage = message + imageRef;
+
     if (editMode && currentSessionId) {
-      await restartFrom(currentSessionId, message);
+      await restartFrom(currentSessionId, fullMessage, userEmail || undefined);
     } else {
-      await analyzeMessage(message);
+      await analyzeMessage(fullMessage, userEmail || undefined);
     }
   };
 
@@ -176,6 +210,30 @@ export const ChatbotInterface = () => {
     inputRef.current?.focus();
   };
 
+  // Gérer la sélection de fichier
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      alert('Seuls les fichiers image sont acceptés (PNG, JPG, GIF, WebP).');
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      alert('Le fichier est trop volumineux (max 10 Mo).');
+      return;
+    }
+    setAttachedFile(file);
+    setAttachedPreview(URL.createObjectURL(file));
+    // Reset input so re-selecting the same file still triggers onChange
+    e.target.value = '';
+  };
+
+  const handleRemoveAttachment = () => {
+    setAttachedFile(null);
+    if (attachedPreview) URL.revokeObjectURL(attachedPreview);
+    setAttachedPreview(null);
+  };
+
   // Déterminer le dernier message du bot
   const lastBotMessage = messages
     .filter((m) => m.type === 'bot')
@@ -194,6 +252,11 @@ export const ChatbotInterface = () => {
   const showClarificationForm =
     (currentAction === 'ask_clarification' || currentAction === 'too_vague') &&
     !isLoading;
+
+  // ========== EMAIL PROMPT (first-time user) ==========
+  if (!userEmail) {
+    return <EmailPrompt onSubmit={(email) => setUserEmail(email)} />;
+  }
 
   return (
     <div className="flex flex-col h-screen bg-[#0f0f12] text-white">
@@ -390,8 +453,61 @@ export const ChatbotInterface = () => {
       {(!currentAction || isEditMode) && (
         <div className="flex-shrink-0 border-t border-white/5 bg-[#16161d]/80 backdrop-blur-xl">
           <div className="max-w-4xl mx-auto px-4 py-4">
+            {/* Attachment preview */}
+            {attachedPreview && (
+              <div className="mb-3 flex items-center gap-3 p-2 bg-[#1e1e28] border border-white/10 rounded-xl">
+                <img
+                  src={attachedPreview}
+                  alt="Capture d'écran jointe"
+                  className="h-16 w-auto rounded-lg object-cover border border-white/10"
+                />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-zinc-300 truncate">{attachedFile?.name}</p>
+                  <p className="text-xs text-zinc-500">
+                    {attachedFile ? `${(attachedFile.size / 1024).toFixed(0)} Ko` : ''}
+                    {' '}&bull; Le texte sera extrait automatiquement
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleRemoveAttachment}
+                  className="flex-shrink-0 p-1.5 text-zinc-500 hover:text-red-400 
+                    hover:bg-red-500/10 rounded-lg transition-colors"
+                  title="Supprimer la pièce jointe"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            )}
+
             <form onSubmit={handleSendMessage} className="relative">
               <div className="relative flex items-end gap-3">
+                {/* Hidden file input */}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleFileSelect}
+                />
+
+                {/* Paperclip / Attachment button */}
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isLoading || isUploading}
+                  className="flex-shrink-0 flex items-center justify-center w-12 h-12
+                    bg-[#1e1e28] border border-white/10 rounded-xl
+                    text-zinc-500 hover:text-indigo-400 hover:border-indigo-500/30
+                    disabled:opacity-40 disabled:cursor-not-allowed
+                    transition-all duration-200 hover:scale-105 active:scale-95"
+                  title="Joindre une capture d'écran"
+                >
+                  <PaperclipIcon />
+                </button>
+
                 {/* Input */}
                 <div className="flex-1 relative">
                   <input
@@ -399,13 +515,13 @@ export const ChatbotInterface = () => {
                     type="text"
                     value={inputMessage}
                     onChange={(e) => setInputMessage(e.target.value)}
-                    placeholder="Décrivez votre problème informatique..."
+                    placeholder={attachedFile ? "Ajoutez une description (optionnel)..." : "Décrivez votre problème informatique..."}
                     className="w-full px-4 py-3.5 pr-24
                       bg-[#1e1e28] border border-white/10 rounded-xl
                       text-zinc-100 placeholder-zinc-600
                       focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/30
                       transition-all duration-200"
-                    disabled={isLoading}
+                    disabled={isLoading || isUploading}
                   />
                   
                   {/* Keyboard hint */}
@@ -420,7 +536,7 @@ export const ChatbotInterface = () => {
                 {/* Send button */}
                 <button
                   type="submit"
-                  disabled={isLoading || !inputMessage.trim()}
+                  disabled={(isLoading || isUploading) || (!inputMessage.trim() && !attachedFile)}
                   className="flex-shrink-0 flex items-center justify-center w-12 h-12
                     bg-gradient-to-r from-indigo-600 to-purple-600 
                     hover:from-indigo-500 hover:to-purple-500
@@ -431,7 +547,7 @@ export const ChatbotInterface = () => {
                     hover:scale-105 active:scale-95
                     disabled:hover:scale-100"
                 >
-                  {isLoading ? (
+                  {(isLoading || isUploading) ? (
                     <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                   ) : (
                     <SendIcon />
@@ -443,6 +559,7 @@ export const ChatbotInterface = () => {
             {/* Footer hint */}
             <p className="mt-3 text-xs text-zinc-600 text-center">
               L'assistant analyse votre message et génère automatiquement un ticket de support.
+              <span className="ml-1">📎 Vous pouvez joindre une capture d'écran.</span>
             </p>
           </div>
         </div>
