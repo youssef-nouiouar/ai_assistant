@@ -5,7 +5,7 @@
 
 from sqlalchemy.orm import Session
 from typing import Dict, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.models.ticket import Ticket
 from app.integrations.glpi_client import get_glpi_client, GLPIClientError
@@ -92,7 +92,7 @@ class GLPISyncService:
                 pass
 
         # Update sync timestamp
-        ticket.glpi_last_update = datetime.now()
+        ticket.glpi_last_update = datetime.now(timezone.utc)
 
         if changes:
             db.commit()
@@ -143,7 +143,7 @@ class GLPISyncService:
                 ticket_id=ticket.glpi_ticket_id,
                 updates=updates,
             )
-            ticket.glpi_sync_at = datetime.now()
+            ticket.glpi_sync_at = datetime.now(timezone.utc)
             db.commit()
             structured_logger.log_info(
                 "GLPI_SYNC_PUSHED",

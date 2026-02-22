@@ -5,7 +5,7 @@
 
 import httpx
 from typing import Dict, Optional, List
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from app.core.config import settings
 from app.core.logger import structured_logger
@@ -67,7 +67,7 @@ class GLPIClient:
 
             data = response.json()
             self.session_token = data["session_token"]
-            self.session_expires_at = datetime.now() + timedelta(hours=1)
+            self.session_expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
 
             structured_logger.log_info("GLPI_SESSION", f"Session initialisée: {self.session_token[:10]}...")
 
@@ -99,7 +99,7 @@ class GLPIClient:
         """S'assure qu'une session valide existe"""
         if not self.session_token or (
             self.session_expires_at and
-            datetime.now() >= self.session_expires_at
+            datetime.now(timezone.utc) >= self.session_expires_at
         ):
             await self.init_session()
 

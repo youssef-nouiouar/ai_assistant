@@ -3,6 +3,7 @@
 # DESCRIPTION : Service Workflow (Version Corrigée)
 # ============================================================================
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 from typing import Dict, List, Optional
 from datetime import datetime, timedelta, timezone
@@ -123,12 +124,22 @@ class TicketWorkflow:
                     previous_choice = parent.selected_choice_id
                 if not previous_analysis:
                     previous_analysis = parent.ai_summary
-                # Construire l'historique de conversation
+                # Construire l'historique de conversation.
+                # On stocke uniquement la clarification brute (ce que l'utilisateur
+                # a tapé) dans l'historique — pas le message enrichi complet — pour
+                # éviter une croissance O(n²) du nombre de tokens envoyés au LLM.
+                # La variable `message` (enriched) reste utilisée pour l'analyse.
                 conversation_history = list(parent.conversation_history or [])
                 prev_question = (parent.ai_summary or {}).get("response_message")
                 if prev_question:
                     conversation_history.append({"role": "assistant", "content": prev_question})
-                conversation_history.append({"role": "user", "content": message})
+                # Extract only the new part added by this clarification round.
+                # Format of enriched message: "{root}\n\nPrécision : {raw}"
+                if "\n\nPrécision : " in message:
+                    raw_turn = message.rsplit("\n\nPrécision : ", 1)[-1]
+                else:
+                    raw_turn = message
+                conversation_history.append({"role": "user", "content": raw_turn})
         # Vérifier limite de tentatives
         if attempts >= MAX_CLARIFICATION_ATTEMPTS:
             return await self._handle_max_attempts_reached(
@@ -196,7 +207,7 @@ class TicketWorkflow:
             session = AnalysisSession(
                 ai_summary=smart_summary,
                 original_message=message,
-                confidence_score=str(confidence),
+                confidence_score=confidence,
                 status="pending",
                 user_email=user_email,
                 action_type=action,
@@ -482,21 +493,12 @@ class TicketWorkflow:
         selected_choice_id: Optional[str] = None
     ) -> Dict:
         """
-        Gère ASK_CLARIFICATION (Version Corrigée - Fix stabilité + Topic Shift)
+        Gère ASK_CLARIFICATION
 
-        Phase 3 :
-        - ✅ Passe le session_id pour tracking des tentatives
-        - ✅ Propage selected_choice_id pour choix guidés contextuels
-        - ✅ Transmet previous_analysis pour persistance du contexte IA
-
-        FIX CRITIQUE:
-        - ✅ N'invalide la session qu'APRÈS succès de l'analyse
-        - ✅ En cas d'erreur, la session reste utilisable pour retry
-
-        NOUVEAU - TOPIC SHIFT:
-        - ✅ Détecte si l'utilisateur change de sujet
-        - ✅ Si topic shift: propose de choisir OU traite le nouveau sujet
-        - ✅ Évite la fusion incohérente de contextes
+        - Passe le session_id pour tracking des tentatives
+        - Propage selected_choice_id pour choix guidés contextuels
+        - Transmet previous_analysis pour persistance du contexte IA
+        - N'invalide la session qu'APRÈS succès de l'analyse (retry-safe)
         """
         session = self._get_valid_session(db, session_id)
         original_message = session.original_message
@@ -913,18 +915,20 @@ class TicketWorkflow:
     def generate_ticket_number(db):
         """
         Génère un numéro de ticket unique : TKT-YYYY-NNNNN
+
+        Thread-safe via PostgreSQL advisory lock (transaction-level).
+        The lock (key 20250001) is held until the enclosing transaction
+        commits or rolls back, so no two concurrent requests can read
+        the same MAX sequence and produce a duplicate number.
         """
+        db.execute(text("SELECT pg_advisory_xact_lock(20250001)"))
+
         current_year = datetime.now().year
         last_ticket = db.query(Ticket).filter(
             Ticket.ticket_number.like(f'TKT-{current_year}-%')
         ).order_by(Ticket.id.desc()).first()
-        
-        if last_ticket:
-            seq_num = int(last_ticket.ticket_number.split('-')[-1]) + 1
-        else:
-            seq_num = 1
-        
-        ticket_number = f"TKT-{current_year}-{seq_num:05d}"
-        return ticket_number
+
+        seq_num = int(last_ticket.ticket_number.split('-')[-1]) + 1 if last_ticket else 1
+        return f"TKT-{current_year}-{seq_num:05d}"
 # Instance globale
 ticket_workflow = TicketWorkflow()

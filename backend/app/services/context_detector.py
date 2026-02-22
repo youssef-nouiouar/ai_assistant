@@ -103,39 +103,6 @@ class ContextDetector:
     # MÉTHODES PUBLIQUES
     # ====================================================================
 
-    # ====================================================================
-    # MESSAGES POUR CHANGEMENT DE SUJET
-    # ====================================================================
-
-    TOPIC_SHIFT_MESSAGES = [
-        "🔄 **Je remarque que vous parlez d'un problème différent.**\n\n"
-        "Voulez-vous que je m'occupe de **{new_topic}** au lieu de **{old_topic}** ?",
-
-        "🤔 **Changement de sujet détecté !**\n\n"
-        "Vous parliez de **{old_topic}**, mais maintenant de **{new_topic}**.\n"
-        "Sur quel problème souhaitez-vous de l'aide ?",
-
-        "📝 **J'ai noté un changement dans votre demande.**\n\n"
-        "Est-ce que votre problème principal est maintenant **{new_topic}** ?",
-    ]
-
-    TOPIC_SHIFT_CHOICES = [
-        GuidedChoice("keep_new", "Oui, le nouveau problème", "✅"),
-        GuidedChoice("keep_old", "Non, revenir au problème initial", "↩️"),
-        GuidedChoice("both_problems", "J'ai les deux problèmes", "🔗"),
-    ]
-
-    @classmethod
-    def get_topic_shift_message(cls, old_context: str, new_context: str) -> str:
-        """Génère un message pour gérer le changement de sujet"""
-        template = random.choice(cls.TOPIC_SHIFT_MESSAGES)
-        return template.format(old_topic=old_context, new_topic=new_context)
-
-    @classmethod
-    def get_topic_shift_choices(cls) -> List[Dict]:
-        """Retourne les choix pour gérer le changement de sujet"""
-        return [c.to_dict() for c in cls.TOPIC_SHIFT_CHOICES]
-
     @classmethod
     def get_guided_choices(
         cls,

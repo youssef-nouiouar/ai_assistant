@@ -32,3 +32,10 @@ class InvalidUserResponseError(AIAssistantException):
 class CategoryNotFoundError(AIAssistantException):
     """Catégorie introuvable"""
     pass
+
+
+class InputGuardError(AIAssistantException):
+    """Input rejected by the input validation guard"""
+    def __init__(self, message: str, error_code: str = "INPUT_INVALID"):
+        super().__init__(message)
+        self.error_code = error_code

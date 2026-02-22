@@ -93,6 +93,14 @@ class GuidedChoiceSchema(BaseModel):
     icon: str = ""
 
 
+class SuggestionMetadata(BaseModel):
+    """Phase 3 - Métadonnées de raisonnement transparent (optionnel)"""
+    reasoning: Optional[str] = None
+    should_regenerate: bool = False
+    regeneration_reason: Optional[str] = None
+    relevance_score: float = 0.0
+
+
 class AnalysisResponse(BaseModel):
     """Réponse après analyse"""
     session_id: Optional[str] = None  # None pour greeting/non_it
@@ -102,6 +110,7 @@ class AnalysisResponse(BaseModel):
     summary: Optional[SmartSummary] = None  # Peut être None si too_vague
     clarification_attempts: int = 0  # Nombre de tentatives
     guided_choices: Optional[List[GuidedChoiceSchema]] = None  # Choix cliquables
+    suggestion_metadata: Optional[SuggestionMetadata] = None  # Phase 3 : Raisonnement transparent
     show_examples: Optional[bool] = None  # Afficher exemples
     expires_at: Optional[str] = None  # None pour greeting/non_it
 

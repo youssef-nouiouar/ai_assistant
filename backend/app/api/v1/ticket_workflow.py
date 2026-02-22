@@ -21,11 +21,13 @@ from app.schemas.ticket_workflow import (
 )
 import time
 from app.services.ticket_workflow import ticket_workflow
+from app.services.input_guard import input_guard
 from app.core.exceptions import (
     SessionNotFoundError,
     SessionAlreadyConvertedError,
     InvalidUserResponseError,
-    AIAnalysisError
+    AIAnalysisError,
+    InputGuardError,
 )
 
 router = APIRouter()
@@ -49,10 +51,11 @@ async def analyze_message(
     - ✅ Logs structurés
     """
     try:
+        clean_message = input_guard.validate(data.message, field="message")
         started_at = time.time()
         result = await ticket_workflow.analyze_message(
             db=db,
-            message=data.message,
+            message=clean_message,
             user_email=data.user_email
         )
         ended_at = time.time()
@@ -64,6 +67,8 @@ async def analyze_message(
 
         return AnalysisResponse(**result)
 
+    except InputGuardError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except AIAnalysisError as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -146,10 +151,13 @@ async def handle_clarification(
     - ✅ Supporte guided_choices
     """
     try:
+        clean_response = input_guard.validate(
+            data.clarification_response, field="clarification_response"
+        )
         result = await ticket_workflow.handle_clarification(
             db=db,
             session_id=data.session_id,
-            clarification_response=data.clarification_response,
+            clarification_response=clean_response,
             selected_choice_id=data.selected_choice_id
         )
 
@@ -159,6 +167,8 @@ async def handle_clarification(
 
         return AnalysisResponse(**result)
 
+    except InputGuardError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except SessionNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     except InvalidUserResponseError as e:
@@ -197,10 +207,11 @@ async def restart_from(
     Invalide la session courante et relance l'analyse depuis un message modifié.
     """
     try:
+        clean_edited = input_guard.validate(data.edited_message, field="edited_message")
         result = await ticket_workflow.handle_restart_from(
             db=db,
             session_id=data.session_id,
-            edited_message=data.edited_message,
+            edited_message=clean_edited,
             user_email=data.user_email
         )
 
@@ -209,6 +220,8 @@ async def restart_from(
 
         return AnalysisResponse(**result)
 
+    except InputGuardError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except SessionNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     except AIAnalysisError as e:
