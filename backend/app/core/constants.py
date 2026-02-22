@@ -31,7 +31,6 @@ class ConfidenceThresholds:
 
 SESSION_EXPIRATION_MINUTES = 60  # Session expire après 60 minutes
 MAX_CLARIFICATION_ATTEMPTS = 5  # Maximum 5 tentatives de clarification
-MAX_CONVERSATION_TURNS = 6  # Maximum 6 échanges par conversation (sécurité)
 
 
 # ========================================================================
@@ -74,21 +73,21 @@ class Messages:
     """
 
     # ================================================================
-    # AUTO-VALIDATE (Confiance >= 98%)
+    # AUTO-VALIDATE (Confiance >= 85%)
     # ================================================================
     AUTO_VALIDATE_VARIATIONS = [
-        "✅ **J'ai bien compris votre demande.**\n\n{summary}\n\nRépondez **\"ok\"** pour créer le ticket.",
-        "✅ **Voici mon analyse.**\n\n{summary}\n\nConfirmez avec **\"oui\"** ou **\"ok\"**.",
-        "✅ **Récapitulatif de votre problème :**\n\n{summary}\n\nDites **\"ok\"** si c'est correct.",
+        "✅ **J'ai bien compris votre demande.**\n\nVérifiez le résumé ci-dessous et répondez **\"ok\"** pour créer le ticket.",
+        "✅ **Analyse complète.** Tout semble clair !\n\nConfirmez avec **\"oui\"** ou **\"ok\"** pour soumettre.",
+        "✅ **Votre demande est prête.**\n\nDites **\"ok\"** si le résumé ci-dessous est correct.",
     ]
 
     # ================================================================
-    # CONFIRM_SUMMARY (Confiance 70-98%)
+    # CONFIRM_SUMMARY (Confiance 60-85%)
     # ================================================================
     CONFIRM_SUMMARY_VARIATIONS = [
-        "🤔 **Voici ce que j'ai compris :**\n\n{summary}\n\nVous pouvez **confirmer** ou **modifier**.",
-        "📝 **Mon analyse :**\n\n{summary}\n\nC'est correct ? Sinon, modifiez le titre ou les symptômes.",
-        "🔍 **J'ai identifié ceci :**\n\n{summary}\n\n**Confirmez** ou ajustez les détails.",
+        "🤔 **Vérifiez le résumé ci-dessous.**\n\nVous pouvez **confirmer** ou **modifier** le titre et les symptômes.",
+        "📝 **Mon analyse est prête.** C'est correct ?\n\nSinon, modifiez les détails avant de confirmer.",
+        "🔍 **Voici ce que j'ai compris.**\n\n**Confirmez** ou ajustez si nécessaire.",
     ]
 
     # ================================================================

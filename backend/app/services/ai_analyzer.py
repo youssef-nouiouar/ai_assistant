@@ -347,7 +347,21 @@ RÉPONSE: Toujours en JSON strict avec les champs requis (voir le prompt utilisa
                 )
 
                 content = response.choices[0].message.content
-                return json.loads(content)
+                result = json.loads(content)
+
+                # Field-level validation: ensure critical fields are present and typed
+                if not isinstance(result.get("confidence_score"), (int, float)):
+                    raise ValueError(f"LLM response missing valid 'confidence_score': {result.get('confidence_score')!r}")
+                if not isinstance(result.get("scoring_breakdown"), dict):
+                    raise ValueError("LLM response missing 'scoring_breakdown' dict")
+                if not isinstance(result.get("suggested_choices", []), (list, type(None))):
+                    result["suggested_choices"] = None
+                if not isinstance(result.get("extracted_symptoms", []), list):
+                    result["extracted_symptoms"] = []
+                if not isinstance(result.get("missing_info", []), list):
+                    result["missing_info"] = []
+
+                return result
 
             except json.JSONDecodeError as e:
                 # Erreur de parsing JSON - ne pas réessayer

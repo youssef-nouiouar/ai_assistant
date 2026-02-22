@@ -3,8 +3,10 @@
 # DESCRIPTION : Routes API (Production Grade)
 # ============================================================================
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_database
@@ -13,7 +15,6 @@ from app.schemas.ticket_workflow import (
     AutoValidateInput,
     ConfirmSummaryInput,
     ClarificationInput,
-    TopicShiftChoiceInput,
     RestartFromInput,
     AnalysisResponse,
     TicketCreatedResponse
@@ -28,10 +29,13 @@ from app.core.exceptions import (
 )
 
 router = APIRouter()
+limiter = Limiter(key_func=get_remote_address)
 
 
 @router.post("/analyze")
+@limiter.limit("15/minute")
 async def analyze_message(
+    request: Request,
     data: MessageInput,
     db: Session = Depends(get_database)
 ):
@@ -126,7 +130,9 @@ async def confirm_or_modify_summary(
 
 
 @router.post("/clarify")
+@limiter.limit("20/minute")
 async def handle_clarification(
+    request: Request,
     data: ClarificationInput,
     db: Session = Depends(get_database)
 ):
@@ -209,35 +215,3 @@ async def restart_from(
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
-@router.post("/topic-shift-choice")
-async def handle_topic_shift_choice(
-    data: TopicShiftChoiceInput,
-    db: Session = Depends(get_database)
-):
-    """
-    **ACTION : TOPIC_SHIFT**
-
-    Gère le choix de l'utilisateur quand un changement de sujet est détecté.
-
-    Choix possibles:
-    - keep_new: Traiter le nouveau problème
-    - keep_old: Revenir au problème original
-    - both_problems: Créer un ticket avec les deux problèmes
-    """
-    try:
-        result = await ticket_workflow.handle_topic_shift_choice(
-            db=db,
-            session_id=data.session_id,
-            choice=data.choice
-        )
-
-        # Retourner le bon type de réponse
-        if result.get("type") == "ticket_created":
-            return TicketCreatedResponse(**result)
-
-        return AnalysisResponse(**result)
-
-    except SessionNotFoundError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    except InvalidUserResponseError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))

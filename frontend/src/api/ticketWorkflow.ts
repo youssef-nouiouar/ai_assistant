@@ -115,25 +115,6 @@ export class TicketWorkflowAPI {
     }
   }
 
-  /**
-   * Gère le choix de l'utilisateur suite à un changement de sujet détecté
-   */
-  static async handleTopicShiftChoice(
-    sessionId: string,
-    choice: 'keep_new' | 'keep_old' | 'both_problems'
-  ): Promise<AnalysisResponse> {
-    try {
-      const response = await api.post<AnalysisResponse>('/topic-shift-choice', {
-        session_id: sessionId,
-        choice,
-      });
-      return response.data;
-    } catch (error) {
-      this.handleError(error);
-      throw error;
-    }
-  }
-
   static async getSession(sessionId: string): Promise<any> {
     try {
       const response = await api.get(`/session/${sessionId}`);

@@ -35,7 +35,6 @@ from app.core.constants import (
     ModifiableFields,
     SESSION_EXPIRATION_MINUTES,
     MAX_CLARIFICATION_ATTEMPTS,
-    MAX_CONVERSATION_TURNS,
     MessageDetection,
     GreetingMessages
 )
@@ -444,7 +443,7 @@ class TicketWorkflow:
                 if "symptoms" in allowed_mods:
                     summary["symptoms"] = allowed_mods["symptoms"]
                 
-                structured_logger.log_error(
+                structured_logger.log_info(
                     "MODIFICATIONS_APPLIED",
                     f"session={session_id}, fields={list(allowed_mods.keys())}"
                 )
@@ -509,73 +508,6 @@ class TicketWorkflow:
             session.selected_choice_id = selected_choice_id
             db.commit()
 
-        # ================================================================
-        # NOUVEAU: Détection de changement de sujet (Topic Shift) sémantique
-        # ================================================================
-        is_topic_shift = False
-        original_category_id = (previous_analysis.get("category") or {}).get("id")
-        new_category_id = None
-
-        # Heuristique : les réponses courtes ne sont pas des changements de sujet
-        if len(clarification_response.split()) > 8:
-            all_categories = self._get_categories(db)
-            sub_categories = self._get_subcategories(all_categories)
-            new_category_id = await ai_analyzer.get_category_for_message(clarification_response, sub_categories)
-
-            if new_category_id and original_category_id != new_category_id:
-                is_topic_shift = True
-
-        if is_topic_shift:
-            original_cat = next((c for c in all_categories if c['id'] == original_category_id), None)
-            new_cat = next((c for c in all_categories if c['id'] == new_category_id), None)
-            original_context_name = original_cat['name'] if original_cat else "problème initial"
-            new_context_name = new_cat['name'] if new_cat else "nouveau problème"
-            
-            structured_logger.log_error(
-                "TOPIC_SHIFT_DETECTED",
-                f"Original: {original_context_name} → New: {new_context_name}"
-            )
-
-            # Créer une session spéciale pour gérer le topic shift
-            shift_session = AnalysisSession(
-                ai_summary={
-                    "topic_shift": True,
-                    "original_context": original_context_name,
-                    "new_context": new_context_name,
-                    "original_message": original_message,
-                    "clarification_response": clarification_response
-                },
-                original_message=original_message,
-                confidence_score="0.0",
-                status="pending_topic_choice",
-                user_email=user_email,
-                action_type="topic_shift",
-                clarification_attempts=session.clarification_attempts,
-                parent_session_id=session_id,
-                expires_at=utc_now() + timedelta(minutes=SESSION_EXPIRATION_MINUTES)
-            )
-
-            db.add(shift_session)
-            db.commit()
-            db.refresh(shift_session)
-
-            return {
-                "session_id": shift_session.id,
-                "type": "topic_shift",
-                "action": "topic_shift",
-                "message": context_detector.get_topic_shift_message(
-                    original_context_name,
-                    new_context_name
-                ),
-                "summary": None,
-                "clarification_attempts": session.clarification_attempts,
-                "guided_choices": context_detector.get_topic_shift_choices(),
-                "expires_at": shift_session.expires_at.isoformat()
-            }
-
-        # ================================================================
-        # PAS DE TOPIC SHIFT → Comportement normal (fusion du contexte)
-        # ================================================================
         enriched_message = f"{original_message}\n\nPrécision : {clarification_response}"
 
         try:
@@ -603,74 +535,6 @@ class TicketWorkflow:
                 f"Session {session_id} kept valid after error: {str(e)}"
             )
             raise
-
-    async def handle_topic_shift_choice(
-        self,
-        db: Session,
-        session_id: str,
-        choice: str  # "keep_new", "keep_old", "both_problems"
-    ) -> Dict:
-        """
-        Gère le choix de l'utilisateur suite à un topic shift détecté.
-
-        - keep_new: Traiter le nouveau problème
-        - keep_old: Revenir au problème original
-        - both_problems: Créer un ticket avec les deux problèmes mentionnés
-        """
-        session = self._get_valid_session(db, session_id)
-
-        if session.action_type != "topic_shift":
-            raise InvalidUserResponseError("Cette session n'est pas en attente d'un choix de sujet.")
-
-        topic_data = session.ai_summary
-        original_message = topic_data.get("original_message", "")
-        clarification_response = topic_data.get("clarification_response", "")
-
-        # Invalider la session de topic shift
-        session.status = "invalidated"
-        session.invalidation_reason = f"topic_shift_resolved_{choice}"
-        db.commit()
-
-        if choice == "keep_new":
-            # Traiter seulement le nouveau problème
-            return await self.analyze_message(
-                db=db,
-                message=clarification_response,
-                user_email=session.user_email,
-                parent_session_id=None,
-                selected_choice_id=None,
-                previous_analysis=None
-            )
-
-        elif choice == "keep_old":
-            # Revenir au problème original
-            return await self.analyze_message(
-                db=db,
-                message=original_message,
-                user_email=session.user_email,
-                parent_session_id=None,
-                selected_choice_id=None,
-                previous_analysis=None
-            )
-
-        elif choice == "both_problems":
-            # L'utilisateur a vraiment deux problèmes → les mentionner explicitement
-            combined_message = (
-                f"J'ai deux problèmes à signaler :\n"
-                f"1. {original_message}\n"
-                f"2. {clarification_response}"
-            )
-            return await self.analyze_message(
-                db=db,
-                message=combined_message,
-                user_email=session.user_email,
-                parent_session_id=None,
-                selected_choice_id=None,
-                previous_analysis=None
-            )
-
-        else:
-            raise InvalidUserResponseError(f"Choix invalide: {choice}")
 
     # Les autres méthodes (handle_auto_validate, _create_ticket)
 
@@ -778,25 +642,26 @@ class TicketWorkflow:
     ) -> str:
         """
         Génère le message utilisateur.
-        Utilise le message IA dynamique si disponible, sinon fallback templates.
-        """
-        # Use AI-generated message if available
-        ai_message = summary.get("response_message") if summary else None
-        if ai_message:
-            return ai_message
 
-        # Fallback to templates
+        Règle : confirm_summary et auto_validate utilisent toujours le template
+        (le message IA peut contenir des questions inappropriées pour ces actions).
+        Le message IA est réservé à ask_clarification et too_vague.
+        """
+        ai_message = summary.get("response_message") if summary else None
+
         if action == "auto_validate":
-            return Messages.get("auto_validate", summary=self._format_summary_display(summary))
+            return Messages.get("auto_validate")
 
         elif action == "confirm_summary":
-            return Messages.get("confirm_summary", summary=self._format_summary_display(summary))
+            return Messages.get("confirm_summary")
 
         elif action == "ask_clarification":
-            return Messages.get("ask_clarification", missing_info_list="Pouvez-vous fournir plus de détails ?")
+            return ai_message if ai_message else Messages.get(
+                "ask_clarification", missing_info_list="Pouvez-vous fournir plus de détails ?"
+            )
 
         elif action == "too_vague":
-            return Messages.get("too_vague")
+            return ai_message if ai_message else Messages.get("too_vague")
 
         return "Message par défaut"
 
@@ -947,7 +812,7 @@ class TicketWorkflow:
                 glpi_client = get_glpi_client()
                 
                 # Créer le ticket dans GLPI
-                glpi_ticket = glpi_client.create_ticket(
+                glpi_ticket = await glpi_client.create_ticket(
                     title=title,
                     description=f"{description}\n\n---\nMessage original:\n{original_message}",
                     category_id=category_id,
@@ -958,7 +823,7 @@ class TicketWorkflow:
                 glpi_ticket_id = glpi_ticket.get("id")
                 glpi_sync_at = utc_now()
                 
-                structured_logger.log_error(
+                structured_logger.log_info(
                     "GLPI_TICKET_CREATED",
                     f"Ticket GLPI créé: ID={glpi_ticket_id}"
                 )
@@ -972,7 +837,7 @@ class TicketWorkflow:
                         f"- Symptômes: {', '.join(symptoms)}"
                     )
                     
-                    glpi_client.add_followup(
+                    await glpi_client.add_followup(
                         ticket_id=glpi_ticket_id,
                         content=ai_analysis_summary,
                         is_private=True  # Suivi privé pour les techniciens

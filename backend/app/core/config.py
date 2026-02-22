@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     OLLAMA_MODEL: str = "llama2"
     
     # openroutines
-    OPENROUTER_API_KEY: str = "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"
+    OPENROUTER_API_KEY: str
 
     # Sécurité
     SECRET_KEY: str
@@ -51,8 +51,8 @@ class Settings(BaseSettings):
 
     GLPI_ENABLED: bool = True  # Activer/désactiver l'intégration GLPI
     GLPI_API_URL: str = "http://localhost/glpi/apirest.php"
-    GLPI_APP_TOKEN: str = "uc00DWibqqnnfKd4mzJ5enb2dy9OlP9g6Xk7i0TG"  # À définir dans .env
-    GLPI_USER_TOKEN: str = "lKoBkb0nVBfN78FzxcbKemYKIUQKPHDoBEmhRqmB"  # À définir dans .env
+    GLPI_APP_TOKEN: str = ""
+    GLPI_USER_TOKEN: str = ""
 
     # Mode de synchronisation
     # "glpi_only": Créer uniquement dans GLPI

@@ -85,6 +85,19 @@ class GLPIMapping:
         # If your GLPI categories differ, override this with a real mapping.
         return our_category_id
 
+    # GLPI urgency/impact per priority level.
+    # In GLPI, priority = f(urgency, impact). Setting all three explicitly
+    # prevents GLPI workflow rules from silently overriding our priority.
+    # Scale: 1=Very low, 2=Low, 3=Medium, 4=High, 5=Very high
+    PRIORITY_TO_URGENCY_IMPACT = {
+        "very_low": (1, 1),
+        "low":      (2, 2),
+        "medium":   (3, 3),
+        "high":     (4, 4),
+        "critical": (5, 5),
+        "major":    (5, 5),
+    }
+
     @classmethod
     def build_ticket_payload(
         cls,
@@ -96,11 +109,15 @@ class GLPIMapping:
         request_type: str = "incident",
     ) -> Dict:
         """Construit le payload pour créer un ticket GLPI."""
+        urgency, impact = cls.PRIORITY_TO_URGENCY_IMPACT.get(priority.lower(), (3, 3))
+
         payload = {
             "input": {
                 "name": title,
                 "content": description,
                 "priority": cls.get_glpi_priority(priority),
+                "urgency": urgency,
+                "impact": impact,
                 "status": 1,  # Nouveau
                 "type": cls.REQUEST_TYPE_MAP.get(request_type, 1),
             }

@@ -43,8 +43,7 @@ export interface AnalysisResponse {
     | 'ask_clarification'
     | 'too_vague'
     | 'greeting'   // Phase 1
-    | 'non_it'     // Phase 1
-    | 'topic_shift'; // Phase 3
+    | 'non_it';    // Phase 1
   message: string;
   summary: SmartSummary | null;
   clarification_attempts: number;

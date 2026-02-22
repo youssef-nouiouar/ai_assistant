@@ -14,7 +14,7 @@ import { LoadingSpinner } from '../Common/LoadingSpinner';
 import { ErrorMessage } from '../Common/ErrorMessage';
 import { ModificationData } from '../../types/workflow.types';
 
-const MAX_CLARIFICATION_ATTEMPTS = 3;
+const MAX_CLARIFICATION_ATTEMPTS = 5; // Must match backend constants.py MAX_CLARIFICATION_ATTEMPTS
 
 // Icons inline SVG
 const SparklesIcon = () => (
@@ -102,7 +102,6 @@ export const ChatbotInterface = () => {
     autoValidate,
     confirmSummary,
     clarify,
-    handleTopicShiftChoice,
     restartFrom,
     reset,
   } = useTicketWorkflow();
@@ -167,13 +166,8 @@ export const ChatbotInterface = () => {
     setShowModificationForm(false);
   };
 
-  // Gérer clarification (Phase 3: passe aussi le choiceId, route topic_shift)
   const handleClarification = async (response: string, choiceId?: string) => {
-    if (currentAction === 'topic_shift' && choiceId) {
-      await handleTopicShiftChoice(choiceId as 'keep_new' | 'keep_old' | 'both_problems');
-    } else {
-      await clarify(response, choiceId);
-    }
+    await clarify(response, choiceId);
   };
 
   // Clic sur exemple rapide
@@ -198,7 +192,7 @@ export const ChatbotInterface = () => {
     !isLoading;
 
   const showClarificationForm =
-    (currentAction === 'ask_clarification' || currentAction === 'too_vague' || currentAction === 'topic_shift') &&
+    (currentAction === 'ask_clarification' || currentAction === 'too_vague') &&
     !isLoading;
 
   return (

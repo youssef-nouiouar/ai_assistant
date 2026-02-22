@@ -3,8 +3,12 @@
 # DESCRIPTION : Point d'entrée de l'application FastAPI
 # ============================================================================
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 from app.core.config import settings
 from app.api.v1 import api_router
 from app.core.database import engine, Base
@@ -13,7 +17,8 @@ from app.core.database import engine, Base
 Base.metadata.create_all(bind=engine)
 from app.api.v1 import glpi_webhook
 
-
+# Rate limiter (partagé avec les routes via state)
+limiter = Limiter(key_func=get_remote_address)
 
 # Créer l'application FastAPI
 app = FastAPI(
@@ -23,6 +28,10 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc"
 )
+
+# Attacher le limiter à l'app (requis par slowapi)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Configuration CORS
 app.add_middleware(

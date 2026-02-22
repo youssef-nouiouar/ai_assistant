@@ -325,73 +325,6 @@ export const useTicketWorkflow = () => {
     [currentSessionId, addMessage]
   );
 
-  /**
-   * Gère le choix de l'utilisateur suite à un changement de sujet détecté
-   */
-  const handleTopicShiftChoice = useCallback(
-    async (choice: 'keep_new' | 'keep_old' | 'both_problems') => {
-      if (!currentSessionId) {
-        setError('Session expirée');
-        return;
-      }
-
-      setIsLoading(true);
-      setError(null);
-
-      // Message utilisateur correspondant au choix
-      const choiceLabels = {
-        keep_new: 'Je veux traiter le nouveau problème',
-        keep_old: 'Je reviens au problème initial',
-        both_problems: "J'ai les deux problèmes",
-      };
-      addMessage('user', choiceLabels[choice]);
-
-      try {
-        const response = await TicketWorkflowAPI.handleTopicShiftChoice(
-          currentSessionId,
-          choice
-        );
-
-        // Gérer ticket_created
-        if (response.type === 'ticket_created') {
-          addMessage('bot', (response as any).message, { ticket: response });
-          setCurrentSessionId(null);
-          setCurrentAction(null);
-          setCurrentSummary(null);
-          setCurrentGuidedChoices(null);
-          setCurrentSuggestionMetadata(null);
-          return response;
-        }
-
-        // Workflow normal
-        setCurrentSessionId(response.session_id);
-        setCurrentAction(response.action);
-        setCurrentSummary(response.summary);
-        setCurrentGuidedChoices(response.guided_choices || null);
-        setCurrentSuggestionMetadata(response.suggestion_metadata || null);
-
-        addMessage('bot', response.message, {
-          sessionId: response.session_id,
-          action: response.action,
-          summary: response.summary,
-          guidedChoices: response.guided_choices,
-          suggestionMetadata: response.suggestion_metadata,
-        });
-
-        return response;
-      } catch (err: any) {
-        const errorMsg =
-          err.response?.data?.detail || 'Erreur lors du traitement du choix';
-        setError(errorMsg);
-        addMessage('system', errorMsg);
-        throw err;
-      } finally {
-        setIsLoading(false);
-      }
-    },
-    [currentSessionId, addMessage]
-  );
-
   const reset = useCallback(() => {
     clearStorage();
     setMessages([]);
@@ -465,7 +398,6 @@ export const useTicketWorkflow = () => {
     autoValidate,
     confirmSummary,
     clarify,
-    handleTopicShiftChoice,
     restartFrom,
     reset,
   };

@@ -42,3 +42,4 @@ INTELLIGENCE_IMPROVEMENT_TASKS.md
 
 tmpclaude*
 migrations/
+.claude/

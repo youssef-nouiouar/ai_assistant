@@ -110,7 +110,7 @@ class GLPISyncService:
     # PUSH: Notre DB -> GLPI
     # ========================================================================
 
-    def push_ticket_to_glpi(
+    async def push_ticket_to_glpi(
         self,
         db: Session,
         ticket_id: int,
@@ -139,7 +139,7 @@ class GLPISyncService:
             return True
 
         try:
-            self.glpi_client.update_ticket(
+            await self.glpi_client.update_ticket(
                 ticket_id=ticket.glpi_ticket_id,
                 updates=updates,
             )

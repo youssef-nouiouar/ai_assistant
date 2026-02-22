@@ -13,14 +13,14 @@ from typing import Optional, List, Dict, Any
 
 class MessageInput(BaseModel):
     """Message utilisateur initial"""
-    message: str = Field(..., min_length=1, description="Message de l'utilisateur")
+    message: str = Field(..., min_length=2, max_length=4000, description="Message de l'utilisateur")
     user_email: Optional[str] = Field(None, description="Email utilisateur")
 
 
 class AutoValidateInput(BaseModel):
     """Réponse pour auto-validation"""
     session_id: str = Field(..., description="ID de la session")
-    user_response: str = Field(..., description="Réponse utilisateur")
+    user_response: str = Field(..., min_length=1, max_length=500, description="Réponse utilisateur")
 
 
 class ConfirmSummaryInput(BaseModel):
@@ -49,24 +49,9 @@ class ConfirmSummaryInput(BaseModel):
 class ClarificationInput(BaseModel):
     """Réponse à clarification"""
     session_id: str = Field(..., description="ID de la session")
-    clarification_response: str = Field(..., description="Réponse détaillée")
+    clarification_response: str = Field(..., min_length=1, max_length=2000, description="Réponse détaillée")
     selected_choice_id: Optional[str] = Field(None, description="ID du choix guidé sélectionné")
 
-
-class TopicShiftChoiceInput(BaseModel):
-    """Choix de l'utilisateur suite à un changement de sujet détecté"""
-    session_id: str = Field(..., description="ID de la session topic_shift")
-    choice: str = Field(
-        ...,
-        description="Choix: 'keep_new', 'keep_old', ou 'both_problems'"
-    )
-
-    @validator('choice')
-    def validate_choice(cls, v):
-        valid_choices = ["keep_new", "keep_old", "both_problems"]
-        if v not in valid_choices:
-            raise ValueError(f"Choix invalide. Options: {', '.join(valid_choices)}")
-        return v
 
 
 class RestartFromInput(BaseModel):
