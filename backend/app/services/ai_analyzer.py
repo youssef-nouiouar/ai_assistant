@@ -47,47 +47,54 @@ Donne UNIQUEMENT une réponse JSON.
 Pour le champ "confidence_score", calcule un score entre 0.05 et 1.0 basé sur ces 4 critères:
 
 ═══════════════════════════════════════════════════════════════════
-1. SPÉCIFICITÉ DU PROBLÈME (0 à 0.35 points)
+1. SPÉCIFICITÉ DU PROBLÈME (0.05 à 0.35 points)
 ═══════════════════════════════════════════════════════════════════
-Évalue la PRÉCISION DIAGNOSTIQUE, PAS la longueur du message.
+Évalue la PRÉCISION DIAGNOSTIQUE. Les niveaux sont MUTUELLEMENT EXCLUSIFS.
 
-  0.35 → Symptôme très spécifique avec identifiant technique
-         Ex: "écran bleu DRIVER_IRQL", "erreur 0x800F081F", "bourrage papier"
+  0.35 → IDENTIFIANT TECHNIQUE présent (code erreur, référence exacte, message système)
+         L'utilisateur cite quelque chose qu'il a lu à l'écran.
+         Ex: "erreur DRIVER_IRQL_NOT_LESS_OR_EQUAL", "0x800F081F", "E11", "Access denied"
 
-  0.30 → Symptôme spécifique et clair
-         Ex: "écran bleu", "page blanche à l'impression", "mot de passe refusé"
+  0.25 → SYMPTÔME OBSERVABLE : l'utilisateur VOIT ou ENTEND quelque chose de précis
+         Aucun identifiant technique, mais le symptôme est sensoriel et descriptif.
+         Ex: "écran bleu", "page blanche à l'impression", "bips au démarrage",
+             "la fenêtre se ferme toute seule quand je clique Envoyer"
 
-  0.25 → Problème clair mais général
-         Ex: "ne peut pas imprimer", "pas d'accès email", "PC ne démarre plus"
+  0.15 → DÉFAILLANCE FONCTIONNELLE : l'utilisateur NE PEUT PAS faire quelque chose
+         Pas de symptôme visible décrit — juste une impossibilité constatée.
+         Ex: "ne peut pas imprimer", "ne peut pas envoyer d'email",
+             "PC ne démarre plus", "mot de passe refusé", "impossible de se connecter"
 
-  0.15 → Description vague mais direction identifiable
-         Ex: "mon PC est lent", "Outlook rame", "problème de connexion"
+  0.08 → INDICE DE DOMAINE VAGUE : direction identifiable mais rien d'actionnable
+         Ex: "mon PC est lent", "Outlook rame", "problème de connexion",
+             "Internet ne marche pas bien"
 
-  0.05 → Extrêmement vague, impossible à diagnostiquer
-         Ex: "j'ai un problème", "ça marche pas", "besoin d'aide urgent"
+  0.05 → AUCUNE VALEUR DIAGNOSTIQUE : impossible d'identifier la moindre piste
+         Ex: "j'ai un problème", "ça marche pas", "besoin d'aide urgent", "c'est cassé"
 
 ═══════════════════════════════════════════════════════════════════
-2. SYSTÈME AFFECTÉ IDENTIFIÉ (0 à 0.25 points)
+2. ENVIRONNEMENT TECHNIQUE IDENTIFIÉ (0 à 0.25 points)
 ═══════════════════════════════════════════════════════════════════
-Peut-on identifier QUEL appareil, application ou service est concerné?
+Évalue ce que l'utilisateur a mentionné pour identifier son contexte technique.
 ATTENTION: NE PAS deviner ou inférer un système non mentionné.
 Seuls les mots EXPLICITES du message comptent.
+Niveaux exacts: 0.00 / 0.05 / 0.15 / 0.25
 
-  0.25 → Appareil + application/service précis NOMMÉS dans le message
-         Ex: "Outlook sur mon PC Dell", "imprimante HP LaserJet étage 3"
+  0.25 → Équipement ET logiciel/service précisément nommés
+         Ex: "Outlook 365 sur mon PC de bureau", "imprimante HP LaserJet du 2ème étage",
+             "Teams sur mon laptop Dell", "le VPN Cisco sur Windows 11"
 
-  0.20 → Appareil + OS ou contexte précis NOMMÉS
-         Ex: "PC Windows 11", "MacBook Pro du service compta"
+  0.15 → Un seul élément technique identifié (appareil OU logiciel OU service)
+         Ex: "mon PC portable", "Outlook", "le WiFi", "l'imprimante", "Teams",
+             "mon téléphone", "le réseau", "ma messagerie"
 
-  0.15 → Appareil OU application explicitement nommé
-         Ex: "mon imprimante", "Outlook", "Teams", "mon téléphone"
+  0.05 → Contexte environnemental vague ou implicite
+         Ex: "au bureau", "quand je travaille à distance", "mon poste" (sans précision),
+             "sur ma machine"
 
-  0.10 → Zone générale mentionnée explicitement
-         Ex: "mon ordinateur", "le réseau", "ma messagerie"
-
-  0.00 → AUCUN appareil, application ou service mentionné dans le message
-         Ex: "j'ai un problème", "ça marche pas", "aide moi", "c'est lent"
-         IMPORTANT: Si le message ne nomme RIEN de concret → 0.00
+  0.00 → Aucune indication d'environnement technique
+         Ex: "ça marche pas", "j'ai un souci", "aide moi"
+         RÈGLE STRICTE: si RIEN de technique n'est mentionné → 0.00
 
 ═══════════════════════════════════════════════════════════════════
 3. CONFIANCE CATÉGORIE (0.05 à 0.25 points) — JAMAIS 0.00
@@ -115,28 +122,51 @@ ATTENTION: 0.25 est RARE. Réservé aux cas avec zéro ambiguïté.
 ═══════════════════════════════════════════════════════════════════
 4. CONTEXTE ACTIONNABLE (0 à 0.15 points)
 ═══════════════════════════════════════════════════════════════════
-A-t-on assez de détails pour AGIR immédiatement?
-ATTENTION: Seules les informations EXPLICITES comptent, pas les déductions.
+A-t-on des éléments permettant d'AGIR ou de DIAGNOSTIQUER immédiatement?
+Seules les informations EXPLICITES du message comptent.
 
-  0.15 → Code erreur, message exact, ou étapes de reproduction
-         Ex: "erreur 0x80070005", "quand je clique sur Envoyer ça plante"
+  0.15 → Éléments techniques exploitables
+         (code erreur, message d'erreur exact, étapes de reproduction)
+         Ex: "Erreur DNS_PROBE_FINISHED_NXDOMAIN", "quand je clique Envoyer ça plante"
 
-  0.10 → Contexte temporel PRÉCIS ou déclencheur identifié
-         Ex: "depuis la mise à jour de lundi", "après redémarrage", "depuis ce matin"
+  0.10 → Contexte circonstanciel utile
+         (quand, après quoi, fréquence, conditions de déclenchement)
+         Ex: "depuis la mise à jour de ce matin", "à chaque fois que je me connecte au VPN",
+             "après redémarrage", "seulement quand je suis en réunion Teams"
 
-  0.05 → Contexte temporel VAGUE
-         Ex: "depuis quelques jours", "parfois", "récemment"
-
-  0.00 → AUCUN contexte temporel, aucun déclencheur, aucun code erreur
+  0.00 → Aucun contexte exploitable
          Ex: "mon PC est lent", "ça marche pas", "j'ai un problème"
          IMPORTANT: Si aucune info de timing/trigger/erreur → 0.00
+
+═══════════════════════════════════════════════════════════════════
+
+RÈGLE DE PRIORITÉ — "suggested_priority":
+Analysez les signaux d'urgence EXPLICITES dans le message.
+
+  "critical" → Crise COLLECTIVE ou infrastructure critique
+    Ex: "tout le service est bloqué", "personne ne peut travailler",
+        "serveur down", "production arrêtée", "réseau en panne générale"
+    RÈGLE: critical exige un impact sur PLUSIEURS personnes simultanément.
+
+  "high" → Utilisateur UNIQUE totalement bloqué
+    Ex: "je suis complètement bloqué", "je ne peux plus travailler",
+        "urgent", "présentation dans 1 heure", "réunion dans 10 minutes"
+
+  "medium" → Gêne significative mais travail partiellement possible
+    Ex: "Outlook lent mais ça finit par s'ouvrir", "imprimante en panne
+        mais j'ai accès à une autre"
+
+  "low" → Inconfort mineur, aucun blocage
+    Ex: "quand vous avez le temps", "pas urgent", "petite gêne"
+
+  Par défaut → "medium" si aucun signal d'urgence détecté.
 
 ═══════════════════════════════════════════════════════════════════
 
 CALCUL FINAL:
   confidence_score = critère1 + critère2 + critère3 + critère4
   Maximum possible = 0.35 + 0.25 + 0.25 + 0.15 = 1.0
-  Minimum possible = 0.00 + 0.00 + 0.05 + 0.00 = 0.05
+  Minimum possible = 0.05 + 0.00 + 0.05 + 0.00 = 0.10
 
 IMPORTANT — "response_message":
 Génère un message NATUREL et CONTEXTUEL pour l'utilisateur (2-4 phrases max).
@@ -251,6 +281,7 @@ Si aucune catégorie ne semble correspondre, réponds {{"category_id": null}}.
                 response_format={"type": "json_object"},
                 messages=messages,
                 temperature=0.0,
+                max_tokens=1024,
                 timeout=15, # Timeout plus court
             )
             content = json.loads(response.choices[0].message.content)
@@ -289,13 +320,19 @@ RÉPONSE: Toujours en JSON strict avec les champs requis (voir le prompt utilisa
                 # Construire les messages: system + historique conversation + prompt analyse
                 messages = [{"role": "system", "content": system_content}]
 
-                # Injecter l'historique de conversation (max 7 derniers messages)
+                # Injecter l'historique de conversation complet
                 if conversation_history and len(conversation_history) > 1:
-                    for msg in conversation_history[-7:]:
+                    if len(conversation_history) > 20:
+                        summary = await self._summarize_conversation(conversation_history)
                         messages.append({
-                            "role": msg["role"],
-                            "content": msg["content"]
+                            "role": "system",
+                            "content": f"[CONTEXTE RÉSUMÉ DES ÉCHANGES PRÉCÉDENTS]\n{summary}"
                         })
+                        for msg in conversation_history[-10:]:
+                            messages.append({"role": msg["role"], "content": msg["content"]})
+                    else:
+                        for msg in conversation_history:
+                            messages.append({"role": msg["role"], "content": msg["content"]})
 
                 # Prompt d'analyse final (toujours en dernier)
                 messages.append({"role": "user", "content": prompt})
@@ -305,6 +342,7 @@ RÉPONSE: Toujours en JSON strict avec les champs requis (voir le prompt utilisa
                     response_format={"type": "json_object"},
                     messages=messages,
                     temperature=0.5,
+                    max_tokens=4096,
                     timeout=30,
                 )
 
@@ -328,6 +366,33 @@ RÉPONSE: Toujours en JSON strict avec les champs requis (voir le prompt utilisa
 
         # Toutes les tentatives ont échoué
         raise last_exception or Exception("LLM API call failed after all retries")
+
+    async def _summarize_conversation(self, conversation_history: List[Dict]) -> str:
+        old_turns = conversation_history[:-10]
+        history_text = "\n".join([
+            f"{msg['role'].upper()}: {msg['content']}"
+            for msg in old_turns
+        ])
+        prompt = (
+            "Résume en 4-5 lignes maximum les informations IT clés de cette conversation. "
+            "Préserve: le problème initial, les symptômes identifiés, les clarifications obtenues, "
+            "et les tentatives de diagnostic échouées. Sois concis.\n\n"
+            f"CONVERSATION:\n{history_text}\n\nRÉSUMÉ:"
+        )
+        try:
+            response = self.client.chat.completions.create(
+                model="google/gemini-2.5-flash-lite-preview-09-2025",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.0,
+                max_tokens=1024,
+                timeout=15,
+            )
+            return response.choices[0].message.content.strip()
+        except Exception:
+            return " | ".join([
+                f"{m['role']}: {m['content'][:80]}"
+                for m in old_turns[:5]
+            ])
 
 
 # INSTANCE GLOBALE

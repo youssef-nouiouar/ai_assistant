@@ -672,7 +672,35 @@ class TicketWorkflow:
         else:
             raise InvalidUserResponseError(f"Choix invalide: {choice}")
 
-    # Les autres méthodes (handle_auto_validate, _create_ticket) 
+    # Les autres méthodes (handle_auto_validate, _create_ticket)
+
+    async def handle_restart_from(
+        self,
+        db: Session,
+        session_id: str,
+        edited_message: str,
+        user_email: Optional[str] = None
+    ) -> Dict:
+        """
+        Invalide la session courante et relance l'analyse depuis le message modifié.
+        Utilisé quand l'utilisateur édite un message précédent (Issue 4B).
+        """
+        session = self._get_valid_session(db, session_id)
+        if not user_email:
+            user_email = session.user_email
+
+        session.status = "invalidated"
+        session.invalidation_reason = "user_edited_message"
+        db.commit()
+
+        return await self.analyze_message(
+            db=db,
+            message=edited_message,
+            user_email=user_email,
+            parent_session_id=None,
+            selected_choice_id=None,
+            previous_analysis=None
+        )
 
     async def handle_auto_validate(
         self,

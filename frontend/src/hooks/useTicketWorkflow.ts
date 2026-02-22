@@ -3,7 +3,7 @@
 // DESCRIPTION : Hook personnalisé pour gérer le workflow (Phase 2)
 // ============================================================================
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { TicketWorkflowAPI } from '../api/ticketWorkflow';
 import {
   AnalysisResponse,
@@ -14,15 +14,80 @@ import {
   SuggestionMetadata,
 } from '../types/workflow.types';
 
+// ============================================================================
+// PERSISTANCE LOCALSTORAGE (Issue 4A)
+// ============================================================================
+
+const STORAGE_KEY = 'it_chatbot_session';
+const SESSION_MAX_AGE_MS = 60 * 60 * 1000; // 60 minutes
+
+const loadFromStorage = () => {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (!stored) return null;
+    const parsed = JSON.parse(stored);
+    if (Date.now() - parsed.savedAt > SESSION_MAX_AGE_MS) {
+      localStorage.removeItem(STORAGE_KEY);
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+};
+
+const saveToStorage = (state: object) => {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...state, savedAt: Date.now() }));
+  } catch {}
+};
+
+const clearStorage = () => {
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch {}
+};
+
 export const useTicketWorkflow = () => {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>(() => {
+    const s = loadFromStorage();
+    return s?.messages
+      ? s.messages.map((m: any) => ({ ...m, timestamp: new Date(m.timestamp) }))
+      : [];
+  });
   const [isLoading, setIsLoading] = useState(false);
-  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
-  const [currentAction, setCurrentAction] = useState<string | null>(null);
-  const [currentSummary, setCurrentSummary] = useState<any>(null);
-  const [currentGuidedChoices, setCurrentGuidedChoices] = useState<GuidedChoice[] | null>(null); // Phase 2
-  const [currentSuggestionMetadata, setCurrentSuggestionMetadata] = useState<SuggestionMetadata | null>(null); // Phase 3
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(
+    () => loadFromStorage()?.currentSessionId ?? null
+  );
+  const [currentAction, setCurrentAction] = useState<string | null>(
+    () => loadFromStorage()?.currentAction ?? null
+  );
+  const [currentSummary, setCurrentSummary] = useState<any>(
+    () => loadFromStorage()?.currentSummary ?? null
+  );
+  const [currentGuidedChoices, setCurrentGuidedChoices] = useState<GuidedChoice[] | null>(
+    () => loadFromStorage()?.currentGuidedChoices ?? null
+  );
+  const [currentSuggestionMetadata, setCurrentSuggestionMetadata] = useState<SuggestionMetadata | null>(
+    () => loadFromStorage()?.currentSuggestionMetadata ?? null
+  );
   const [error, setError] = useState<string | null>(null);
+
+  // Persist state to localStorage on every relevant change
+  useEffect(() => {
+    if (messages.length === 0 && !currentSessionId) {
+      clearStorage();
+    } else {
+      saveToStorage({
+        messages,
+        currentSessionId,
+        currentAction,
+        currentSummary,
+        currentGuidedChoices,
+        currentSuggestionMetadata,
+      });
+    }
+  }, [messages, currentSessionId, currentAction, currentSummary, currentGuidedChoices, currentSuggestionMetadata]);
 
   const addMessage = useCallback(
     (type: 'user' | 'bot' | 'system', content: string, data?: any) => {
@@ -328,6 +393,7 @@ export const useTicketWorkflow = () => {
   );
 
   const reset = useCallback(() => {
+    clearStorage();
     setMessages([]);
     setCurrentSessionId(null);
     setCurrentAction(null);
@@ -337,20 +403,70 @@ export const useTicketWorkflow = () => {
     setError(null);
   }, []);
 
+  // Issue 4B: Relance l'analyse depuis un message modifié
+  const restartFrom = useCallback(
+    async (sessionId: string, editedMessage: string, userEmail?: string) => {
+      setIsLoading(true);
+      setError(null);
+      addMessage('user', editedMessage);
+
+      try {
+        const response = await TicketWorkflowAPI.restartFrom(sessionId, editedMessage, userEmail);
+
+        if (response.type === 'ticket_created') {
+          addMessage('bot', (response as any).message, { ticket: response });
+          clearStorage();
+          setCurrentSessionId(null);
+          setCurrentAction(null);
+          setCurrentSummary(null);
+          setCurrentGuidedChoices(null);
+          setCurrentSuggestionMetadata(null);
+          return response;
+        }
+
+        setCurrentSessionId(response.session_id);
+        setCurrentAction(response.action);
+        setCurrentSummary(response.summary);
+        setCurrentGuidedChoices(response.guided_choices || null);
+        setCurrentSuggestionMetadata(response.suggestion_metadata || null);
+
+        addMessage('bot', response.message, {
+          sessionId: response.session_id,
+          action: response.action,
+          summary: response.summary,
+          attempts: response.clarification_attempts,
+          guidedChoices: response.guided_choices,
+          suggestionMetadata: response.suggestion_metadata,
+        });
+
+        return response;
+      } catch (err: any) {
+        const errorMsg = err.response?.data?.detail || 'Erreur lors du redémarrage';
+        setError(errorMsg);
+        addMessage('system', errorMsg);
+        throw err;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [addMessage]
+  );
+
   return {
     messages,
     isLoading,
     currentSessionId,
     currentAction,
     currentSummary,
-    currentGuidedChoices, // Phase 2
-    currentSuggestionMetadata, // Phase 3
+    currentGuidedChoices,
+    currentSuggestionMetadata,
     error,
     analyzeMessage,
     autoValidate,
     confirmSummary,
     clarify,
-    handleTopicShiftChoice, // NOUVEAU
+    handleTopicShiftChoice,
+    restartFrom,
     reset,
   };
 };

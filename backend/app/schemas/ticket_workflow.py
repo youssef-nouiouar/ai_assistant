@@ -69,6 +69,13 @@ class TopicShiftChoiceInput(BaseModel):
         return v
 
 
+class RestartFromInput(BaseModel):
+    """Invalide la session courante et relance l'analyse depuis un message modifié"""
+    session_id: str = Field(..., description="ID de la session à invalider")
+    edited_message: str = Field(..., min_length=1, max_length=2000, description="Message modifié")
+    user_email: Optional[str] = Field(None, description="Email utilisateur")
+
+
 # ========================================================================
 # OUTPUT SCHEMAS (Flexibles pour gérer None)
 # ========================================================================

@@ -14,6 +14,7 @@ from app.schemas.ticket_workflow import (
     ConfirmSummaryInput,
     ClarificationInput,
     TopicShiftChoiceInput,
+    RestartFromInput,
     AnalysisResponse,
     TicketCreatedResponse
 )
@@ -156,6 +157,56 @@ async def handle_clarification(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     except InvalidUserResponseError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.get("/session/{session_id}")
+async def get_session(
+    session_id: str,
+    db: Session = Depends(get_database)
+):
+    """
+    Récupère les données d'une session existante (restauration après page refresh).
+    """
+    try:
+        session = ticket_workflow._get_valid_session(db, session_id)
+        return {
+            "session_id": session.id,
+            "action": session.action_type,
+            "summary": session.ai_summary,
+            "clarification_attempts": session.clarification_attempts,
+            "expires_at": session.expires_at.isoformat()
+        }
+    except SessionNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except SessionAlreadyConvertedError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+
+
+@router.post("/restart-from")
+async def restart_from(
+    data: RestartFromInput,
+    db: Session = Depends(get_database)
+):
+    """
+    Invalide la session courante et relance l'analyse depuis un message modifié.
+    """
+    try:
+        result = await ticket_workflow.handle_restart_from(
+            db=db,
+            session_id=data.session_id,
+            edited_message=data.edited_message,
+            user_email=data.user_email
+        )
+
+        if result.get("type") == "ticket_created":
+            return TicketCreatedResponse(**result)
+
+        return AnalysisResponse(**result)
+
+    except SessionNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except AIAnalysisError as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
 @router.post("/topic-shift-choice")

@@ -134,6 +134,34 @@ export class TicketWorkflowAPI {
     }
   }
 
+  static async getSession(sessionId: string): Promise<any> {
+    try {
+      const response = await api.get(`/session/${sessionId}`);
+      return response.data;
+    } catch (error) {
+      this.handleError(error);
+      throw error;
+    }
+  }
+
+  static async restartFrom(
+    sessionId: string,
+    editedMessage: string,
+    userEmail?: string
+  ): Promise<AnalysisResponse> {
+    try {
+      const response = await api.post<AnalysisResponse>('/restart-from', {
+        session_id: sessionId,
+        edited_message: editedMessage,
+        user_email: userEmail,
+      });
+      return response.data;
+    } catch (error) {
+      this.handleError(error);
+      throw error;
+    }
+  }
+
   private static handleError(error: unknown) {
     if (axios.isAxiosError(error)) {
       const axiosError = error as AxiosError<any>;

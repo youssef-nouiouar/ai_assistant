@@ -29,8 +29,8 @@ class ConfidenceThresholds:
 # LIMITATIONS DE SÉCURITÉ
 # ========================================================================
 
-SESSION_EXPIRATION_MINUTES = 30  # Session expire après 30 minutes
-MAX_CLARIFICATION_ATTEMPTS = 3  # Maximum 3 tentatives de clarification
+SESSION_EXPIRATION_MINUTES = 60  # Session expire après 60 minutes
+MAX_CLARIFICATION_ATTEMPTS = 5  # Maximum 5 tentatives de clarification
 MAX_CONVERSATION_TURNS = 6  # Maximum 6 échanges par conversation (sécurité)
 
 

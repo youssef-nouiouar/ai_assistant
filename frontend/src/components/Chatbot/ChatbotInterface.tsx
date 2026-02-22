@@ -85,12 +85,14 @@ const quickExamples = [
 export const ChatbotInterface = () => {
   const [inputMessage, setInputMessage] = useState('');
   const [showModificationForm, setShowModificationForm] = useState(false);
+  const [isEditMode, setIsEditMode] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const {
     messages,
     isLoading,
+    currentSessionId,
     currentAction,
     currentSummary,
     currentGuidedChoices,
@@ -101,6 +103,7 @@ export const ChatbotInterface = () => {
     confirmSummary,
     clarify,
     handleTopicShiftChoice,
+    restartFrom,
     reset,
   } = useTicketWorkflow();
 
@@ -116,14 +119,28 @@ export const ChatbotInterface = () => {
     }
   }, [currentAction, isLoading]);
 
-  // Gérer l'envoi du message initial
+  // Gérer l'envoi du message initial (ou édition en mode edit)
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputMessage.trim() || isLoading) return;
 
     const message = inputMessage.trim();
     setInputMessage('');
-    await analyzeMessage(message);
+    const editMode = isEditMode;
+    setIsEditMode(false);
+
+    if (editMode && currentSessionId) {
+      await restartFrom(currentSessionId, message);
+    } else {
+      await analyzeMessage(message);
+    }
+  };
+
+  // Gérer le clic sur le bouton d'édition d'un message (Issue 4B)
+  const handleEditMessage = (text: string) => {
+    setInputMessage(text);
+    setIsEditMode(true);
+    inputRef.current?.focus();
   };
 
   // Gérer auto-validation
@@ -304,7 +321,12 @@ export const ChatbotInterface = () => {
 
           {/* Messages */}
           {messages.map((message) => (
-            <MessageBubble key={message.id} message={message} onExampleClick={handleQuickExample} />
+            <MessageBubble
+              key={message.id}
+              message={message}
+              onExampleClick={handleQuickExample}
+              onEditClick={handleEditMessage}
+            />
           ))}
 
           {/* Loading indicator */}
@@ -371,7 +393,7 @@ export const ChatbotInterface = () => {
       </div>
 
       {/* ========== INPUT AREA ========== */}
-      {!currentAction && (
+      {(!currentAction || isEditMode) && (
         <div className="flex-shrink-0 border-t border-white/5 bg-[#16161d]/80 backdrop-blur-xl">
           <div className="max-w-4xl mx-auto px-4 py-4">
             <form onSubmit={handleSendMessage} className="relative">
