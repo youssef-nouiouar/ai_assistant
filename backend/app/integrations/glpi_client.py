@@ -126,7 +126,8 @@ class GLPIClient:
         création — c'est la méthode la plus fiable (cf. test notebook).
 
         Sinon, si seul `user_email` est fourni, on tombe dans le fallback
-        `_add_ticket_requester` qui cherche / crée l'utilisateur dans GLPI.
+        `_add_ticket_requester` qui cherche l'utilisateur dans GLPI et, si
+        introuvable, ajoute un suivi privé pour alerter le technicien.
         """
         await self.ensure_session()
 
@@ -273,29 +274,20 @@ class GLPIClient:
             return None
 
     async def _add_ticket_requester(self, ticket_id: int, user_email: str):
-        """Ajoute un demandeur à un ticket. Auto-crée l'utilisateur dans GLPI si besoin."""
+        """Ajoute un demandeur à un ticket. Si l'utilisateur est introuvable dans GLPI,
+        ajoute un suivi privé pour alerter le technicien."""
         user = await self.get_user_by_email(user_email)
 
         if not user:
-            structured_logger.log_info(
-                "GLPI_USER_NOT_FOUND",
-                f"Utilisateur {user_email} non trouvé dans GLPI — tentative de création automatique"
-            )
-            user = await self._create_user_in_glpi(user_email)
-
-        if not user:
-            # Auto-creation failed — fall back to private followup so technicians
-            # still know who submitted the ticket.
             structured_logger.log_error(
-                "GLPI_USER_AUTO_CREATE_FAILED",
-                f"Impossible de créer {user_email} dans GLPI — ajout d'un suivi privé en fallback"
+                "GLPI_USER_NOT_FOUND",
+                f"Utilisateur {user_email} non trouvé dans GLPI — ajout d'un suivi privé en fallback"
             )
             try:
                 await self.add_followup(
                     ticket_id=ticket_id,
                     content=(
-                        f"⚠️ Demandeur non trouvé dans GLPI et la création "
-                        f"automatique a échoué.\n"
+                        f"⚠️ Demandeur non trouvé dans GLPI.\n"
                         f"Email: {user_email}\n\n"
                         f"Action requise: créer le compte utilisateur dans GLPI "
                         f"ou lier manuellement ce ticket à l'utilisateur concerné."
@@ -333,56 +325,6 @@ class GLPIClient:
 
         except httpx.HTTPError as e:
             structured_logger.log_error("GLPI_ADD_REQUESTER_ERROR", str(e))
-
-    async def _create_user_in_glpi(self, email: str) -> Optional[Dict]:
-        """
-        Auto-create a user in GLPI from their email address.
-
-        Derives a plausible name from the email local part (e.g.
-        'jean.dupont@corp.com' -> first='Jean', last='Dupont').
-        Returns the GLPI user dict (with at least key '2' = user id)
-        on success, or None on failure.
-        """
-        await self.ensure_session()
-
-        # Derive first/last name from email local part
-        local_part = email.split("@")[0]
-        name_parts = local_part.replace("_", ".").replace("-", ".").split(".")
-        first_name = name_parts[0].capitalize() if name_parts else local_part
-        last_name = name_parts[1].capitalize() if len(name_parts) > 1 else ""
-
-        payload = {
-            "input": {
-                "name": local_part,              # login
-                "realname": last_name,            # GLPI field for last name
-                "firstname": first_name,
-                "_useremails": [email],           # GLPI magic field to attach email
-            }
-        }
-
-        try:
-            response = await self._http.post(
-                f"{self.base_url}/User",
-                headers=self._get_headers(),
-                json=payload,
-            )
-            response.raise_for_status()
-
-            created_data = response.json()
-            new_user_id = created_data.get("id")
-
-            structured_logger.log_info(
-                "GLPI_USER_CREATED",
-                f"Utilisateur {email} créé dans GLPI: ID={new_user_id}",
-            )
-
-            # Return a dict compatible with _add_ticket_requester expectations
-            # (key "2" holds the user id in GLPI search results)
-            return {"2": new_user_id}
-
-        except httpx.HTTPError as e:
-            structured_logger.log_error("GLPI_CREATE_USER_ERROR", str(e))
-            return None
 
     # ========================================================================
     # CATÉGORIES
