@@ -49,12 +49,14 @@ api.interceptors.response.use(
 export class TicketWorkflowAPI {
   static async analyzeMessage(
     message: string,
-    userEmail?: string
+    userEmail?: string,
+    fileUrl?: string
   ): Promise<AnalysisResponse> {
     try {
       const response = await api.post<AnalysisResponse>('/analyze', {
         message,
         user_email: userEmail,
+        file_url: fileUrl,
       });
       return response.data;
     } catch (error) {
@@ -128,13 +130,15 @@ export class TicketWorkflowAPI {
   static async restartFrom(
     sessionId: string,
     editedMessage: string,
-    userEmail?: string
+    userEmail?: string,
+    fileUrl?: string
   ): Promise<AnalysisResponse> {
     try {
       const response = await api.post<AnalysisResponse>('/restart-from', {
         session_id: sessionId,
         edited_message: editedMessage,
         user_email: userEmail,
+        file_url: fileUrl,
       });
       return response.data;
     } catch (error) {

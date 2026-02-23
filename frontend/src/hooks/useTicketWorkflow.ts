@@ -104,13 +104,13 @@ export const useTicketWorkflow = () => {
   );
 
   const analyzeMessage = useCallback(
-    async (message: string, userEmail?: string) => {
+    async (message: string, userEmail?: string, fileUrl?: string) => {
       setIsLoading(true);
       setError(null);
       addMessage('user', message);
 
       try {
-        const response = await TicketWorkflowAPI.analyzeMessage(message, userEmail);
+        const response = await TicketWorkflowAPI.analyzeMessage(message, userEmail, fileUrl);
 
         // Phase 2: Gérer les réponses sans session (greeting/non_it)
         if (response.action === 'greeting' || response.action === 'non_it') {
@@ -338,13 +338,13 @@ export const useTicketWorkflow = () => {
 
   // Issue 4B: Relance l'analyse depuis un message modifié
   const restartFrom = useCallback(
-    async (sessionId: string, editedMessage: string, userEmail?: string) => {
+    async (sessionId: string, editedMessage: string, userEmail?: string, fileUrl?: string) => {
       setIsLoading(true);
       setError(null);
       addMessage('user', editedMessage);
 
       try {
-        const response = await TicketWorkflowAPI.restartFrom(sessionId, editedMessage, userEmail);
+        const response = await TicketWorkflowAPI.restartFrom(sessionId, editedMessage, userEmail, fileUrl);
 
         if (response.type === 'ticket_created') {
           addMessage('bot', (response as any).message, { ticket: response });

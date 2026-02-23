@@ -15,6 +15,7 @@ class MessageInput(BaseModel):
     """Message utilisateur initial"""
     message: str = Field(..., min_length=2, max_length=4000, description="Message de l'utilisateur")
     user_email: Optional[str] = Field(None, description="Email utilisateur")
+    file_url: Optional[str] = Field(None, description="URL locale de l'image uploadée (/uploads/...)")
 
 
 class AutoValidateInput(BaseModel):
@@ -59,6 +60,7 @@ class RestartFromInput(BaseModel):
     session_id: str = Field(..., description="ID de la session à invalider")
     edited_message: str = Field(..., min_length=1, max_length=2000, description="Message modifié")
     user_email: Optional[str] = Field(None, description="Email utilisateur")
+    file_url: Optional[str] = Field(None, description="URL locale de l'image uploadée (/uploads/...)")
 
 
 # ========================================================================

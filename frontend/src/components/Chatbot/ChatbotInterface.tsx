@@ -143,6 +143,7 @@ export const ChatbotInterface = () => {
     setIsEditMode(false);
 
     // Upload attached image first, prepend OCR text
+    let fileUrl: string | undefined;
     if (attachedFile) {
       setIsUploading(true);
       try {
@@ -151,6 +152,7 @@ export const ChatbotInterface = () => {
           message = `[Texte extrait de la capture d'écran]\n${upload.extracted_text}\n\n${message}`;
         }
         imageRef = `\n\n📎 Image jointe : ${upload.file_url}`;
+        fileUrl = upload.file_url;
       } catch {
         // Upload failed — continue without the image
       } finally {
@@ -163,9 +165,9 @@ export const ChatbotInterface = () => {
     const fullMessage = message + imageRef;
 
     if (editMode && currentSessionId) {
-      await restartFrom(currentSessionId, fullMessage, userEmail || undefined);
+      await restartFrom(currentSessionId, fullMessage, userEmail || undefined, fileUrl);
     } else {
-      await analyzeMessage(fullMessage, userEmail || undefined);
+      await analyzeMessage(fullMessage, userEmail || undefined, fileUrl);
     }
   };
 

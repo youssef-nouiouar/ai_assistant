@@ -112,11 +112,16 @@ async def analyze_message(
     try:
         clean_message = input_guard.validate(data.message, field="message")
         verified_email = await _verify_user_email(db, data.user_email)
+        structured_logger.log_info(
+            "ANALYZE_ATTACHMENT",
+            f"file_url reçu: {data.file_url!r}"
+        )
         started_at = time.time()
         result = await ticket_workflow.analyze_message(
             db=db,
             message=clean_message,
-            user_email=verified_email
+            user_email=verified_email,
+            file_url=data.file_url,
         )
         ended_at = time.time()
         print("\nAnalysis Result:", result, "Time taken:", ended_at - started_at)
@@ -273,7 +278,8 @@ async def restart_from(
             db=db,
             session_id=data.session_id,
             edited_message=clean_edited,
-            user_email=verified_email
+            user_email=verified_email,
+            file_url=data.file_url,
         )
 
         if result.get("type") == "ticket_created":

@@ -3,6 +3,8 @@
 # DESCRIPTION : Service Workflow (Version Corrigée)
 # ============================================================================
 
+import os
+from pathlib import Path
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from typing import Dict, List, Optional
@@ -65,7 +67,8 @@ class TicketWorkflow:
         user_email: Optional[str] = None,
         parent_session_id: Optional[str] = None,
         selected_choice_id: Optional[str] = None,
-        previous_analysis: Optional[Dict] = None
+        previous_analysis: Optional[Dict] = None,
+        file_url: Optional[str] = None,
     ) -> Dict:
         """
         Analyse le message (Version Améliorée - Phase 1)
@@ -124,6 +127,8 @@ class TicketWorkflow:
                     previous_choice = parent.selected_choice_id
                 if not previous_analysis:
                     previous_analysis = parent.ai_summary
+                if not file_url:
+                    file_url = parent.attachment_url
                 # Construire l'historique de conversation.
                 # On stocke uniquement la clarification brute (ce que l'utilisateur
                 # a tapé) dans l'historique — pas le message enrichi complet — pour
@@ -177,6 +182,7 @@ class TicketWorkflow:
                     analysis=analysis,
                     categories=categories,
                     conversation_history=conversation_history,
+                    file_url=file_url,
                 )
             
             # Déterminer l'action
@@ -203,6 +209,10 @@ class TicketWorkflow:
                 "original_message": message
             }
             
+            structured_logger.log_info(
+                "SESSION_ATTACHMENT",
+                f"Création session avec attachment_url={file_url!r}"
+            )
             # Créer la session
             session = AnalysisSession(
                 ai_summary=smart_summary,
@@ -215,6 +225,7 @@ class TicketWorkflow:
                 parent_session_id=parent_session_id,
                 selected_choice_id=selected_choice_id,
                 conversation_history=conversation_history,
+                attachment_url=file_url,
                 expires_at=utc_now() + timedelta(minutes=SESSION_EXPIRATION_MINUTES)
             )
             
@@ -269,6 +280,7 @@ class TicketWorkflow:
         analysis: Optional[Dict] = None,
         categories: Optional[List[Dict]] = None,
         conversation_history: Optional[List[Dict]] = None,
+        file_url: Optional[str] = None,
     ) -> Dict:
         """
         Gère le cas où le message est trop vague (confidence < 30%)
@@ -286,6 +298,7 @@ class TicketWorkflow:
             action_type="too_vague",
             clarification_attempts=attempts,
             conversation_history=conversation_history or [],
+            attachment_url=file_url,
             expires_at=utc_now() + timedelta(minutes=SESSION_EXPIRATION_MINUTES)
         )
 
@@ -467,7 +480,8 @@ class TicketWorkflow:
             db=db,
             summary=summary,
             user_email=session.user_email,
-            validation_method=f"confirm_summary_{user_action}"
+            validation_method=f"confirm_summary_{user_action}",
+            file_url=session.attachment_url,
         )
         
         # Invalider session
@@ -520,7 +534,8 @@ class TicketWorkflow:
                 user_email=user_email,
                 parent_session_id=session_id,
                 selected_choice_id=selected_choice_id,
-                previous_analysis=previous_analysis
+                previous_analysis=previous_analysis,
+                file_url=session.attachment_url,
             )
 
             # Succès ! Maintenant on peut invalider la session
@@ -545,15 +560,19 @@ class TicketWorkflow:
         db: Session,
         session_id: str,
         edited_message: str,
-        user_email: Optional[str] = None
+        user_email: Optional[str] = None,
+        file_url: Optional[str] = None,
     ) -> Dict:
         """
         Invalide la session courante et relance l'analyse depuis le message modifié.
         Utilisé quand l'utilisateur édite un message précédent (Issue 4B).
+        Si aucun file_url n'est fourni, l'attachment de la session précédente est hérité.
         """
         session = self._get_valid_session(db, session_id)
         if not user_email:
             user_email = session.user_email
+        if not file_url:
+            file_url = session.attachment_url
 
         session.status = "invalidated"
         session.invalidation_reason = "user_edited_message"
@@ -565,7 +584,8 @@ class TicketWorkflow:
             user_email=user_email,
             parent_session_id=None,
             selected_choice_id=None,
-            previous_analysis=None
+            previous_analysis=None,
+            file_url=file_url,
         )
 
     async def handle_auto_validate(
@@ -595,7 +615,8 @@ class TicketWorkflow:
             db=db,
             summary=session.ai_summary,
             user_email=session.user_email,
-            validation_method="auto_validate"
+            validation_method="auto_validate",
+            file_url=session.attachment_url,
         )
         
         # 4. Invalider la session (Idempotence)
@@ -779,7 +800,8 @@ class TicketWorkflow:
         db: Session,
         summary: Dict,
         user_email: Optional[str],
-        validation_method: str
+        validation_method: str,
+        file_url: Optional[str] = None,
     ) -> Dict:
         """
         Crée le ticket (VERSION MODIFIÉE AVEC GLPI)
@@ -808,7 +830,8 @@ class TicketWorkflow:
         
         glpi_ticket_id = None
         glpi_sync_at = None
-        
+        glpi_document_id = None
+
         if settings.GLPI_ENABLED:
             try:
                 glpi_client = get_glpi_client()
@@ -842,12 +865,45 @@ class TicketWorkflow:
                         f"- Méthode de validation: {validation_method}\n"
                         f"- Symptômes: {', '.join(symptoms)}"
                     )
-                    
+
                     await glpi_client.add_followup(
                         ticket_id=glpi_ticket_id,
                         content=ai_analysis_summary,
                         is_private=True  # Suivi privé pour les techniciens
                     )
+
+                    # Attacher l'image au ticket GLPI si disponible
+                    structured_logger.log_info(
+                        "ATTACHMENT_DEBUG",
+                        f"file_url dans _create_ticket: {file_url!r}"
+                    )
+                    if file_url and file_url.startswith("/uploads/"):
+                        filename = file_url.split("/uploads/")[-1]
+                        local_path = str(Path(settings.UPLOAD_DIR).resolve() / filename)
+                        structured_logger.log_info(
+                            "ATTACHMENT_PATH",
+                            f"Chemin résolu: {local_path} | existe: {os.path.exists(local_path)}"
+                        )
+                        if os.path.exists(local_path):
+                            glpi_document_id = await glpi_client.attach_document_to_ticket(
+                                ticket_id=glpi_ticket_id,
+                                file_path=local_path,
+                                filename=filename,
+                            )
+                            if glpi_document_id:
+                                try:
+                                    os.remove(local_path)
+                                    structured_logger.log_info(
+                                        "LOCAL_FILE_DELETED",
+                                        f"Fichier local supprimé après attach GLPI: {local_path}",
+                                    )
+                                except OSError as del_err:
+                                    structured_logger.log_error("LOCAL_FILE_DELETE_ERROR", str(del_err))
+                        else:
+                            structured_logger.log_error(
+                                "ATTACHMENT_NOT_FOUND",
+                                f"Fichier introuvable pour attach GLPI: {local_path}",
+                            )
                 
             except GLPIClientError as e:
                 structured_logger.log_error("GLPI_SYNC_ERROR", str(e))
@@ -873,6 +929,7 @@ class TicketWorkflow:
             validation_method=validation_method,
             ready_for_l1=True,
             glpi_ticket_id=glpi_ticket_id,
+            glpi_document_id=glpi_document_id,
             synced_to_glpi=glpi_ticket_id is not None,
             glpi_sync_at=glpi_sync_at,
         )

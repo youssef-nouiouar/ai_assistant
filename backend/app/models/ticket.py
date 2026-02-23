@@ -31,6 +31,7 @@ class Ticket(Base):
 
     # GLPI sync fields
     glpi_ticket_id = Column(Integer, unique=True)
+    glpi_document_id = Column(Integer, nullable=True)
     synced_to_glpi = Column(Boolean, default=False)
     glpi_sync_at = Column(DateTime(timezone=True))
     glpi_last_update = Column(DateTime(timezone=True))

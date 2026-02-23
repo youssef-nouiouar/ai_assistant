@@ -37,3 +37,6 @@ class AnalysisSession(Base):
 
     # NOUVEAU: Timestamp de conversion en ticket
     conversion_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Pièce jointe uploadée avec ce message (URL locale /uploads/...)
+    attachment_url = Column(String(500), nullable=True)

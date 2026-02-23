@@ -314,6 +314,60 @@ class GLPIClient:
             structured_logger.log_error("GLPI_CREATE_USER_ERROR", str(e))
             return None
 
+    async def attach_document_to_ticket(
+        self,
+        ticket_id: int,
+        file_path: str,
+        filename: str,
+    ) -> Optional[int]:
+        """
+        Upload un fichier local comme Document GLPI et le lie au ticket en un seul appel.
+        Retourne le GLPI document ID, ou None en cas d'échec.
+        """
+        import json
+        import mimetypes
+
+        await self.ensure_session()
+
+        mime_type, _ = mimetypes.guess_type(filename)
+        mime_type = mime_type or "application/octet-stream"
+
+        manifest = json.dumps({
+            "input": {
+                "name": filename,
+                "itemtype": "Ticket",
+                "items_id": ticket_id,
+            }
+        })
+
+        try:
+            with open(file_path, "rb") as f:
+                file_data = f.read()
+
+            # httpx gère Content-Type multipart automatiquement — ne pas le surcharger
+            headers = {k: v for k, v in self._get_headers().items() if k != "Content-Type"}
+
+            response = await self._http.post(
+                f"{self.base_url}/Document",
+                headers=headers,
+                files={
+                    "uploadManifest": (None, manifest, "application/json"),
+                    "filename[0]": (filename, file_data, mime_type),
+                },
+            )
+            response.raise_for_status()
+
+            doc_id = response.json().get("id")
+            structured_logger.log_info(
+                "GLPI_DOCUMENT_ATTACHED",
+                f"Document '{filename}' attaché au ticket {ticket_id}: ID={doc_id}",
+            )
+            return doc_id
+
+        except (httpx.HTTPError, OSError) as e:
+            structured_logger.log_error("GLPI_ATTACH_DOCUMENT_ERROR", str(e))
+            return None
+
     async def _add_ticket_requester(self, ticket_id: int, user_email: str):
         """Ajoute un demandeur à un ticket. Si l'utilisateur est introuvable dans GLPI,
         ajoute un suivi privé pour alerter le technicien."""
