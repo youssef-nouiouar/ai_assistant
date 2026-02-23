@@ -273,6 +273,47 @@ class GLPIClient:
             structured_logger.log_error("GLPI_GET_USER_ERROR", str(e))
             return None
 
+    async def create_user(
+        self,
+        email: str,
+        first_name: str,
+        last_name: str,
+    ) -> Optional[int]:
+        """
+        Crée un utilisateur dans GLPI et retourne son ID GLPI.
+        Retourne None en cas d'échec.
+        """
+        await self.ensure_session()
+
+        local_part = email.split("@")[0]
+        payload = {
+            "input": {
+                "name": local_part,
+                "firstname": first_name or local_part,
+                "realname": last_name or "",
+                "_useremails": [email],
+            }
+        }
+
+        try:
+            response = await self._http.post(
+                f"{self.base_url}/User",
+                headers=self._get_headers(),
+                json=payload,
+            )
+            response.raise_for_status()
+
+            glpi_user_id = response.json().get("id")
+            structured_logger.log_info(
+                "GLPI_USER_CREATED",
+                f"Utilisateur {email} créé dans GLPI: ID={glpi_user_id}",
+            )
+            return glpi_user_id
+
+        except httpx.HTTPError as e:
+            structured_logger.log_error("GLPI_CREATE_USER_ERROR", str(e))
+            return None
+
     async def _add_ticket_requester(self, ticket_id: int, user_email: str):
         """Ajoute un demandeur à un ticket. Si l'utilisateur est introuvable dans GLPI,
         ajoute un suivi privé pour alerter le technicien."""

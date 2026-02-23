@@ -10,6 +10,7 @@ from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_database
+from app.integrations.glpi_client import get_glpi_client
 from app.schemas.ticket_workflow import (
     MessageInput,
     AutoValidateInput,
@@ -36,11 +37,14 @@ router = APIRouter()
 limiter = Limiter(key_func=get_remote_address)
 
 
-def _verify_user_email(db: Session, user_email: str | None) -> str | None:
+async def _verify_user_email(db: Session, user_email: str | None) -> str | None:
     """
     If a user_email is provided, verify it matches a record in the Users table.
     Returns the validated email or None.  Raises HTTP 403 if the email is
     not found — preventing impersonation of non-existent identities.
+
+    Also ensures glpi_user_id is populated: if it is null, the user is created
+    in GLPI and the local record is updated with the returned ID.
     """
     if not user_email:
         return None
@@ -61,6 +65,31 @@ def _verify_user_email(db: Session, user_email: str | None) -> str | None:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Ce compte utilisateur est désactivé."
         )
+
+    if user.glpi_user_id is None:
+        structured_logger.log_info(
+            "GLPI_USER_SYNC",
+            f"glpi_user_id manquant pour {user_email} — création dans GLPI"
+        )
+        glpi_client = get_glpi_client()
+        glpi_id = await glpi_client.create_user(
+            email=user.email,
+            first_name=user.first_name or "",
+            last_name=user.last_name or "",
+        )
+        if glpi_id:
+            user.glpi_user_id = glpi_id
+            db.commit()
+            structured_logger.log_info(
+                "GLPI_USER_SYNC_OK",
+                f"glpi_user_id={glpi_id} enregistré pour {user_email}"
+            )
+        else:
+            structured_logger.log_error(
+                "GLPI_USER_SYNC_FAILED",
+                f"Impossible de créer {user_email} dans GLPI"
+            )
+
     return user_email
 
 
@@ -82,7 +111,7 @@ async def analyze_message(
     """
     try:
         clean_message = input_guard.validate(data.message, field="message")
-        verified_email = _verify_user_email(db, data.user_email)
+        verified_email = await _verify_user_email(db, data.user_email)
         started_at = time.time()
         result = await ticket_workflow.analyze_message(
             db=db,
@@ -239,7 +268,7 @@ async def restart_from(
     """
     try:
         clean_edited = input_guard.validate(data.edited_message, field="edited_message")
-        verified_email = _verify_user_email(db, data.user_email)
+        verified_email = await _verify_user_email(db, data.user_email)
         result = await ticket_workflow.handle_restart_from(
             db=db,
             session_id=data.session_id,
