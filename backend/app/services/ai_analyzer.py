@@ -44,117 +44,96 @@ CATEGORIES:
 
 Donne UNIQUEMENT une réponse JSON.
 
-Pour le champ "confidence_score", calcule un score entre 0.05 et 1.0 basé sur ces 4 critères:
+RÈGLE ABSOLUE : seules les informations EXPLICITES du message comptent.
+Ne jamais inférer ou deviner ce qui n'est pas écrit.
 
 ═══════════════════════════════════════════════════════════════════
-1. SPÉCIFICITÉ DU PROBLÈME (0.05 à 0.35 points)
+D1. SYMPTÔME + DÉCLENCHEUR — valeurs possibles : 0.00 / 0.25 / 0.50
 ═══════════════════════════════════════════════════════════════════
-Évalue la PRÉCISION DIAGNOSTIQUE. Les niveaux sont MUTUELLEMENT EXCLUSIFS.
+Le technicien peut-il visualiser ce qui se passe ET dans quelles conditions ?
 
-  0.35 → IDENTIFIANT TECHNIQUE présent (code erreur, référence exacte, message système)
-         L'utilisateur cite quelque chose qu'il a lu à l'écran.
-         Ex: "erreur DRIVER_IRQL_NOT_LESS_OR_EQUAL", "0x800F081F", "E11", "Access denied"
+  0.50 → Symptôme nommé + déclencheur explicite
+         Un comportement précis EST décrit ET une condition qui le provoque EST nommée.
+         Déclencheurs valides : "quand", "dès que", "après que", "à chaque fois que", "depuis que"
+         Ex: "Outlook se ferme quand j'ouvre une pièce jointe"
+             "Le PC freeze dès que j'ouvre SAP et Excel en même temps"
+             "Impossible d'imprimer depuis la mise à jour de ce matin"
 
-  0.25 → SYMPTÔME OBSERVABLE : l'utilisateur VOIT ou ENTEND quelque chose de précis
-         Aucun identifiant technique, mais le symptôme est sensoriel et descriptif.
-         Ex: "écran bleu", "page blanche à l'impression", "bips au démarrage",
-             "la fenêtre se ferme toute seule quand je clique Envoyer"
+  0.25 → Symptôme nommé sans déclencheur
+         Un comportement précis est mentionné mais sans condition qui le provoque.
+         Ex: "Outlook plante", "impossible d'imprimer", "écran bleu au démarrage",
+             "je ne peux plus me connecter", "Outlook lent", "erreur à l'ouverture"
 
-  0.15 → DÉFAILLANCE FONCTIONNELLE : l'utilisateur NE PEUT PAS faire quelque chose
-         Pas de symptôme visible décrit — juste une impossibilité constatée.
-         Ex: "ne peut pas imprimer", "ne peut pas envoyer d'email",
-             "PC ne démarre plus", "mot de passe refusé", "impossible de se connecter"
+  0.00 → Aucun symptôme identifiable
+         Ex: "ça marche pas", "j'ai un problème", "urgent", "mon PC ne va pas bien"
 
-  0.08 → INDICE DE DOMAINE VAGUE : direction identifiable mais rien d'actionnable
-         Ex: "mon PC est lent", "Outlook rame", "problème de connexion",
-             "Internet ne marche pas bien"
-
-  0.05 → AUCUNE VALEUR DIAGNOSTIQUE : impossible d'identifier la moindre piste
-         Ex: "j'ai un problème", "ça marche pas", "besoin d'aide urgent", "c'est cassé"
-
-═══════════════════════════════════════════════════════════════════
-2. ENVIRONNEMENT TECHNIQUE IDENTIFIÉ (0 à 0.25 points)
-═══════════════════════════════════════════════════════════════════
-Évalue ce que l'utilisateur a mentionné pour identifier son contexte technique.
-ATTENTION: NE PAS deviner ou inférer un système non mentionné.
-Seuls les mots EXPLICITES du message comptent.
-Niveaux exacts: 0.00 / 0.05 / 0.15 / 0.25
-
-  0.25 → Équipement ET logiciel/service précisément nommés
-         Ex: "Outlook 365 sur mon PC de bureau", "imprimante HP LaserJet du 2ème étage",
-             "Teams sur mon laptop Dell", "le VPN Cisco sur Windows 11"
-
-  0.15 → Un seul élément technique identifié (appareil OU logiciel OU service)
-         Ex: "mon PC portable", "Outlook", "le WiFi", "l'imprimante", "Teams",
-             "mon téléphone", "le réseau", "ma messagerie"
-
-  0.05 → Contexte environnemental vague ou implicite
-         Ex: "au bureau", "quand je travaille à distance", "mon poste" (sans précision),
-             "sur ma machine"
-
-  0.00 → Aucune indication d'environnement technique
-         Ex: "ça marche pas", "j'ai un souci", "aide moi"
-         RÈGLE STRICTE: si RIEN de technique n'est mentionné → 0.00
+  RÈGLE 0.00→0.25 : un comportement précis est nommé (crash, freeze, blocage,
+                    accès refusé, page blanche) — pas juste "ça ne marche pas".
+  RÈGLE 0.25→0.50 : en plus du symptôme, un déclencheur EXPLICITE est présent.
+                    Un mot vague ("souvent", "parfois") reste à 0.25.
 
 ═══════════════════════════════════════════════════════════════════
-3. CONFIANCE CATÉGORIE (0.05 à 0.25 points) — JAMAIS 0.00
+D2. SYSTÈME IMPLIQUÉ — valeurs possibles : 0.00 / 0.15 / 0.30
 ═══════════════════════════════════════════════════════════════════
-Tu DOIS TOUJOURS suggérer une catégorie. Minimum = 0.05.
-ATTENTION: 0.25 est RARE. Réservé aux cas avec zéro ambiguïté.
+Le technicien sait-il sur quel système intervenir ?
 
-  0.25 → Catégorie ÉVIDENTE avec détail technique confirmant
-         Ex: "bourrage papier imprimante" → Matériel (aucune autre possibilité)
-         Ex: "erreur 0x800F sur Windows Update" → Postes-travail (certain)
-         RÈGLE: 0.25 seulement si AUCUNE autre catégorie n'est possible
+  0.30 → Système nommé + au moins un identifiant
+         (version, modèle, marque, OS, localisation physique)
+         Ex: "Outlook 365" (version), "Windows 11" (OS),
+             "imprimante Canon LBP6030" (marque+modèle), "PC du service RH" (localisation)
 
-  0.20 → Catégorie claire, une seule candidate logique
-         Ex: "Outlook ne s'ouvre plus" → Messagerie (très probable)
-         Ex: "problème de connexion internet" → Réseau (très probable)
+  0.15 → Système nommé sans aucun identifiant
+         Ex: "Outlook", "Teams", "l'imprimante", "le WiFi",
+             "mon PC portable", "le réseau", "ma messagerie", "le VPN"
 
-  0.15 → Catégorie probable mais 1-2 alternatives possibles
-         Ex: "pas d'accès au dossier" → Fichiers-Partages ou Accès?
-         Ex: "PC lent" → Postes-travail ou Applications?
+  0.00 → Aucun système, appareil ou logiciel nommé
+         Ex: "ça marche pas", "au bureau", "sur ma machine", "j'ai un souci"
 
-  0.05 → Incertain, 3+ catégories possibles, choix par défaut
-         Ex: "ça marche pas" → impossible à catégoriser
-         Ex: "j'ai un problème" → aucune direction
+  RÈGLE MULTI-ÉLÉMENTS : si plusieurs systèmes mentionnés, prendre le plus élevé.
 
 ═══════════════════════════════════════════════════════════════════
-4. CONTEXTE ACTIONNABLE (0 à 0.15 points)
+D3. PREUVE DIAGNOSTIQUE — valeurs possibles : 0.00 / 0.20
 ═══════════════════════════════════════════════════════════════════
-A-t-on des éléments permettant d'AGIR ou de DIAGNOSTIQUER immédiatement?
-Seules les informations EXPLICITES du message comptent.
+Y a-t-il un message d'erreur cité mot pour mot ?
 
-  0.15 → Éléments techniques exploitables
-         (code erreur, message d'erreur exact, étapes de reproduction)
-         Ex: "Erreur DNS_PROBE_FINISHED_NXDOMAIN", "quand je clique Envoyer ça plante"
+  0.20 → Code ou texte d'erreur exact recopié verbatim
+         Ex: "erreur 0x800CCC0E", "DRIVER_IRQL_NOT_LESS_OR_EQUAL",
+             "Accès refusé au serveur Exchange", "ERR_CONNECTION_REFUSED"
 
-  0.10 → Contexte circonstanciel utile
-         (quand, après quoi, fréquence, conditions de déclenchement)
-         Ex: "depuis la mise à jour de ce matin", "à chaque fois que je me connecte au VPN",
-             "après redémarrage", "seulement quand je suis en réunion Teams"
+  0.00 → Pas d'erreur citée, ou erreur mentionnée sans texte exact
+         Ex: "y'a un message d'erreur", "un code que je ne me souviens plus",
+             "il affiche quelque chose en rouge"
 
-  0.00 → Aucun contexte exploitable
-         Ex: "mon PC est lent", "ça marche pas", "j'ai un problème"
-         IMPORTANT: Si aucune info de timing/trigger/erreur → 0.00
+  RÈGLE : un texte exact lu à l'écran est cité verbatim → 0.20.
+           "Il y a une erreur" sans citation → 0.00.
 
 ═══════════════════════════════════════════════════════════════════
+CALCUL DU QUALITY SCORE
+═══════════════════════════════════════════════════════════════════
+  quality_score = D1 + D2 + D3   (somme directe, 0.0 à 1.0)
+  Maximum : 0.50 + 0.30 + 0.20 = 1.00
 
-RÈGLE DE PRIORITÉ — "suggested_priority":
-Analysez les signaux d'urgence EXPLICITES dans le message.
+  RÈGLE HISTORIQUE : Si un historique de conversation est présent, évalue l'ENSEMBLE
+  du contexte (message original + toutes les précisions). Le quality_score reflète
+  TOUTES les informations disponibles — chaque dimension ne peut qu'augmenter ou rester stable.
+
+TICKET ROUTABLE (is_routable = true) si :
+  D1 >= 0.25  ET  D2 >= 0.15   (symptôme identifiable sur un système nommé)
+
+═══════════════════════════════════════════════════════════════════
+RÈGLE DE PRIORITÉ — "suggested_priority"
+═══════════════════════════════════════════════════════════════════
+Analyser les signaux d'urgence EXPLICITES dans le message.
 
   "critical" → Crise COLLECTIVE ou infrastructure critique
-    Ex: "tout le service est bloqué", "personne ne peut travailler",
-        "serveur down", "production arrêtée", "réseau en panne générale"
+    Ex: "tout le service est bloqué", "serveur down", "réseau en panne générale"
     RÈGLE: critical exige un impact sur PLUSIEURS personnes simultanément.
 
   "high" → Utilisateur UNIQUE totalement bloqué
-    Ex: "je suis complètement bloqué", "je ne peux plus travailler",
-        "urgent", "présentation dans 1 heure", "réunion dans 10 minutes"
+    Ex: "je suis complètement bloqué", "présentation dans 1 heure", "urgent"
 
   "medium" → Gêne significative mais travail partiellement possible
-    Ex: "Outlook lent mais ça finit par s'ouvrir", "imprimante en panne
-        mais j'ai accès à une autre"
+    Ex: "Outlook lent mais ça finit par s'ouvrir", "j'ai accès à une autre imprimante"
 
   "low" → Inconfort mineur, aucun blocage
     Ex: "quand vous avez le temps", "pas urgent", "petite gêne"
@@ -162,39 +141,56 @@ Analysez les signaux d'urgence EXPLICITES dans le message.
   Par défaut → "medium" si aucun signal d'urgence détecté.
 
 ═══════════════════════════════════════════════════════════════════
+IMPORTANT — "response_message" :
+Utilise toujours les mots exacts de l'utilisateur. Le message dépend des slots manquants (D1, D2).
 
-CALCUL FINAL:
-  confidence_score = critère1 + critère2 + critère3 + critère4
-  Maximum possible = 0.35 + 0.25 + 0.25 + 0.15 = 1.0
-  Minimum possible = 0.05 + 0.00 + 0.05 + 0.00 = 0.10
+  Si D1 >= 0.25 ET D2 >= 0.15 → CONFIRMATION (2-3 phrases) :
+    [Reformulation du problème avec SES mots] + [Question de confirmation neutre]
+    Modèles de fin : "Est-ce bien ce qui se passe ?" / "C'est bien votre problème ?"
+    Exemple : "Votre Outlook se ferme quand vous ouvrez une pièce jointe Excel. C'est bien votre problème ?"
 
-IMPORTANT — "response_message":
-Génère un message NATUREL et CONTEXTUEL pour l'utilisateur (2-4 phrases max).
-- Si confiance élevée (>=0.60): résume ce que tu as compris de SON problème spécifique et demande confirmation
-- Si confiance moyenne (0.30-0.60): montre que tu as compris partiellement et pose ta question de clarification
-- Si confiance basse (<0.30): montre de l'empathie et pose une question ouverte pour mieux comprendre
-- Référence les mots de l'utilisateur (ex: "Votre imprimante HP...", pas "Votre appareil...")
-- Ne répète JAMAIS le même message si conversation en cours — varie ton style
-- Termine par une action claire: confirmer, préciser, ou répondre à ta question
+  Si D1 == 0.00 ET D2 >= 0.15 → SYMPTÔME MANQUANT (1-2 phrases) :
+    [Reformulation du système connu, sans question]
+    Exemple : "Je vois que vous avez un problème avec Outlook."
 
-IMPORTANT — "suggested_choices" (si confiance < 0.60):
-Génère 3-5 choix cliquables CONTEXTUELS pour aider l'utilisateur à préciser son problème.
-- Chaque choix: {{"label": "<texte court>", "icon": "<emoji>"}}
-- Les choix doivent être liés au message de l'utilisateur, PAS des catégories génériques
-- Si le message mentionne un appareil, propose des sous-problèmes spécifiques à cet appareil
-- Si le message est très vague, propose les grandes familles de problèmes IT
-- Ajoute toujours un choix "Autre problème" avec l'icône 🔧 en dernier
-- Si confiance >= 0.60: mettre null (pas besoin de choix, le problème est suffisamment compris)
+  Si D1 >= 0.25 ET D2 == 0.00 → SYSTÈME MANQUANT (1-2 phrases) :
+    [Reformulation du symptôme connu, sans question]
+    Exemple : "Je vois que quelque chose bloque ou plante chez vous."
+
+  Si D1 == 0.00 ET D2 == 0.00 → EMPATHIE (1-2 phrases) :
+    [Phrase empathique courte]
+    Exemple : "Je suis là pour vous aider avec votre problème informatique."
+
+IMPORTANT — "suggested_choices" :
+  Si D1 >= 0.25 ET D2 >= 0.15 → null (les deux slots sont remplis).
+
+  Si D1 == 0.00 ET D2 >= 0.15 → 3-5 SYMPTÔMES OBSERVABLES spécifiques au système nommé.
+    L'utilisateur a identifié le système — propose des comportements précis à reconnaître.
+    Un choix = ce que l'utilisateur OBSERVE, pas une action technicien, pas une question.
+    ✅ Pour Outlook : "Outlook ne s'ouvre pas", "Emails bloqués à l'envoi", "Outlook freeze"
+    ✅ Pour imprimante : "Imprimante hors ligne", "Bourrage papier", "Page blanche"
+    ❌ "Vérifier la configuration SMTP" (action technicien)
+    ❌ "Le problème concerne l'envoi ?" (question)
+
+  Si D1 >= 0.25 ET D2 == 0.00 → 3-5 SYSTÈMES IT COURANTS.
+    L'utilisateur a décrit un symptôme — propose les systèmes les plus courants.
+    Ex: "Outlook / messagerie 📧", "Teams / réunions 💬", "VPN / réseau 🌐", "Imprimante 🖨️"
+
+  Si D1 == 0.00 ET D2 == 0.00 → 3-5 FAMILLES DE PROBLÈMES IT généraux.
+    Ex: "Mon PC / ordinateur 💻", "Ma messagerie 📧", "Mon réseau / Internet 🌐", "Une imprimante 🖨️"
+
+  Format : {{"label": "<texte court>", "icon": "<emoji>"}}
+  Ajoute toujours "Autre problème" avec 🔧 en dernier.
 
 RÉPONSE JSON ATTENDUE :
 {{
   "suggested_category_id": <int ou null>,
-  "confidence_score": <float 0.05-1.0>,
+  "quality_score": <float 0.0-1.0 — somme D1+D2+D3>,
+  "is_routable": <bool — true si D1>=0.25 ET D2>=0.15>,
   "scoring_breakdown": {{
-    "problem_specificity": <float 0-0.35>,
-    "system_identified": <float 0-0.25>,
-    "category_confidence": <float 0.05-0.25>,
-    "actionable_context": <float 0-0.15>
+    "d1_symptom_clarity":  <float — un parmi : 0.00/0.25/0.50>,
+    "d2_system_involved":  <float — un parmi : 0.00/0.15/0.30>,
+    "d3_diagnostic_proof": <float — un parmi : 0.00/0.20>
   }},
   "extracted_title": "<string max 80 chars>",
   "extracted_symptoms": ["<symptom1>", "<symptom2>", ...],
@@ -204,9 +200,11 @@ RÉPONSE JSON ATTENDUE :
     "os": "<string ou null>",
     "application": "<string ou null>",
     "error_message": "<string ou null>",
-    "onset": "<string ou null>"
+    "onset": "<string ou null>",
+    "affected_users": "<string ou null>",
+    "prior_actions": "<string ou null>"
   }},
-  "missing_info": ["<info1>", "<info2>", ...],
+  "missing_info": ["<dimension la plus faible>", ...],
   "response_message": "<string — message naturel pour l'utilisateur>",
   "suggested_choices": [
     {{"label": "<texte court>", "icon": "<emoji>"}},
@@ -232,12 +230,12 @@ RÉPONSE JSON ATTENDUE :
             return {
                 "suggested_category_id": None,
                 "suggested_category_name": None,
-                "confidence_score": 0.05,
+                "quality_score": 0.0,
+                "is_routable": False,
                 "scoring_breakdown": {
-                    "problem_specificity": 0.0,
-                    "system_identified": 0.0,
-                    "category_confidence": 0.05,
-                    "actionable_context": 0.0
+                    "d1_symptom_clarity": 0.00,
+                    "d2_system_involved": 0.00,
+                    "d3_diagnostic_proof": 0.00
                 },
                 "extracted_title": "",
                 "extracted_symptoms": [],
@@ -350,10 +348,12 @@ RÉPONSE: Toujours en JSON strict avec les champs requis (voir le prompt utilisa
                 result = json.loads(content)
 
                 # Field-level validation: ensure critical fields are present and typed
-                if not isinstance(result.get("confidence_score"), (int, float)):
-                    raise ValueError(f"LLM response missing valid 'confidence_score': {result.get('confidence_score')!r}")
+                if not isinstance(result.get("quality_score"), (int, float)):
+                    raise ValueError(f"LLM response missing valid 'quality_score': {result.get('quality_score')!r}")
                 if not isinstance(result.get("scoring_breakdown"), dict):
                     raise ValueError("LLM response missing 'scoring_breakdown' dict")
+                if not isinstance(result.get("is_routable"), bool):
+                    result["is_routable"] = False
                 if not isinstance(result.get("suggested_choices", []), (list, type(None))):
                     result["suggested_choices"] = None
                 if not isinstance(result.get("extracted_symptoms", []), list):

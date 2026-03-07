@@ -31,6 +31,7 @@ from app.core.exceptions import (
     AIAnalysisError
 )
 from app.integrations.glpi_client import get_glpi_client, GLPIClientError
+from app.services.glpi_inventory import glpi_inventory_service, detect_problem_type
 from app.core.config import settings
 from app.core.constants import (
     ConfidenceThresholds,
@@ -170,10 +171,14 @@ class TicketWorkflow:
                 conversation_history=conversation_history
             )
             
-            confidence = analysis.get("confidence_score", 0.0)
+            quality_score = analysis.get("quality_score", 0.0)
+            scoring = analysis.get("scoring_breakdown", {})
+            d1 = scoring.get("d1_symptom_clarity", 0.0)
+            d2 = scoring.get("d2_system_involved", 0.0)
             print("\nRésultat de l'analyse IA :" + str(analysis))
-            # CORRECTION : Gérer le cas "too_vague" (confiance < 30%)
-            if confidence < ConfidenceThresholds.ASK_CLARIFICATION:
+
+            # Logique slot-based : too_vague si aucun slot rempli
+            if d1 == 0.0 and d2 == 0.0:
                 return await self._handle_too_vague(
                     db=db,
                     message=message,
@@ -184,9 +189,9 @@ class TicketWorkflow:
                     conversation_history=conversation_history,
                     file_url=file_url,
                 )
-            
-            # Déterminer l'action
-            action = self._determine_action(confidence)
+
+            # Déterminer l'action selon les slots
+            action = self._determine_action(d1, d2)
             
             # CORRECTION : Smart Summary peut avoir category = None
             # Ensure missing_info is always a list (convert string to list if needed)
@@ -194,18 +199,22 @@ class TicketWorkflow:
             if isinstance(missing_info, str):
                 missing_info = [missing_info] if missing_info else []
             
+            # Le message IA est utilisé pour ask_clarification ET confirm_summary.
+            # Le LLM génère un message adapté au slot manquant ou une confirmation.
+            ai_response_message = analysis.get("response_message")
+
             smart_summary = {
                 "category": {
                     "id": analysis.get("suggested_category_id"),
                     "name": analysis.get("suggested_category_name"),
-                    "confidence": confidence
+                    "confidence": quality_score
                 } if analysis.get("suggested_category_id") else None,
                 "priority": analysis.get("suggested_priority"),
                 "title": analysis.get("extracted_title"),
                 "symptoms": analysis.get("extracted_symptoms", []),
                 "extracted_info": analysis.get("extracted_info", {}),
                 "missing_info": missing_info,
-                "response_message": analysis.get("response_message"),
+                "response_message": ai_response_message,
                 "original_message": message
             }
             
@@ -217,7 +226,7 @@ class TicketWorkflow:
             session = AnalysisSession(
                 ai_summary=smart_summary,
                 original_message=message,
-                confidence_score=confidence,
+                confidence_score=quality_score,
                 status="pending",
                 user_email=user_email,
                 action_type=action,
@@ -236,7 +245,7 @@ class TicketWorkflow:
             structured_logger.log_analysis_completed(
                 session_id=session.id,
                 action=action,
-                confidence=confidence,
+                confidence=quality_score,
                 category=analysis.get("suggested_category_name", "None")
             )
             
@@ -524,7 +533,14 @@ class TicketWorkflow:
             session.selected_choice_id = selected_choice_id
             db.commit()
 
-        enriched_message = f"{original_message}\n\nPrécision : {clarification_response}"
+        # Si la réponse vient d'un clic sur un choix guidé, on le préfixe clairement
+        # pour que le LLM ne l'interprète pas comme une action déjà effectuée (D6).
+        if selected_choice_id and selected_choice_id.startswith("dynamic_"):
+            clarification_text = f"[Option sélectionnée par l'utilisateur] {clarification_response}"
+        else:
+            clarification_text = clarification_response
+
+        enriched_message = f"{original_message}\n\nPrécision : {clarification_text}"
 
         try:
             # Tenter l'analyse AVANT d'invalider
@@ -638,16 +654,12 @@ class TicketWorkflow:
     # UTILITAIRES
     # ========================================================================
     
-    def _determine_action(self, confidence: float) -> str:
-        """Détermine l'action basée sur la confiance"""
-        if confidence >= ConfidenceThresholds.AUTO_VALIDATE:
-            return "auto_validate"
-        elif confidence >= ConfidenceThresholds.CONFIRM_SUMMARY:
+    def _determine_action(self, d1: float, d2: float) -> str:
+        """Détermine l'action basée sur les slots D1 (symptôme) et D2 (système).
+        Les deux slots remplis → confirm_summary. Sinon → ask_clarification."""
+        if d1 >= 0.25 and d2 >= 0.15:
             return "confirm_summary"
-        elif confidence >= ConfidenceThresholds.ASK_CLARIFICATION:
-            return "ask_clarification"
-        else:
-            return "too_vague"
+        return "ask_clarification"
     
     @staticmethod
     def _format_ai_choices(ai_choices: list) -> List[Dict]:
@@ -672,11 +684,8 @@ class TicketWorkflow:
         """
         ai_message = summary.get("response_message") if summary else None
 
-        if action == "auto_validate":
-            return Messages.get("auto_validate")
-
-        elif action == "confirm_summary":
-            return Messages.get("confirm_summary")
+        if action == "confirm_summary":
+            return ai_message if ai_message else Messages.get("confirm_summary")
 
         elif action == "ask_clarification":
             return ai_message if ai_message else Messages.get(
@@ -825,12 +834,55 @@ class TicketWorkflow:
         )
         
         # ====================================================================
+        # ENRICHISSEMENT INVENTAIRE GLPI (ENV_BLOCK)
+        # ====================================================================
+
+        env_block = ""
+        if settings.GLPI_ENABLED and user and user.glpi_user_id:
+            try:
+                # Déterminer le problem_type depuis la catégorie
+                category_obj = db.query(Category).filter(Category.id == category_id).first() if category_id else None
+                problem_type = detect_problem_type(
+                    category_name=category_obj.name if category_obj else None,
+                    category_abbreviation=category_obj.abbreviation if category_obj else None,
+                )
+
+                # Extraire des indicators depuis extracted_info
+                indicators = []
+                ext_info = summary.get("extracted_info", {})
+                for key in ("application", "device_type"):
+                    val = ext_info.get(key)
+                    if val:
+                        indicators.append(val)
+
+                if problem_type:
+                    inventory = await glpi_inventory_service.enrich_ticket_context(
+                        glpi_user_id=user.glpi_user_id,
+                        problem_type=problem_type,
+                        indicators=indicators,
+                    )
+                    env_block = inventory.get("env_block", "")
+                    if env_block:
+                        structured_logger.log_info(
+                            "INVENTORY_ENRICHED",
+                            f"Env block généré pour {problem_type} (user={user.glpi_user_id})",
+                        )
+            except Exception as e:
+                structured_logger.log_error("INVENTORY_ENRICHMENT_ERROR", str(e))
+                # Ne pas bloquer la création si l'enrichissement échoue
+
+        # ====================================================================
         # CRÉATION DANS GLPI (SI ACTIVÉ)
         # ====================================================================
         
         glpi_ticket_id = None
         glpi_sync_at = None
         glpi_document_id = None
+
+        # Construire la description complète avec env_block
+        full_description = description
+        if env_block:
+            full_description = f"{env_block}\n\n{description}"
 
         if settings.GLPI_ENABLED:
             try:
@@ -842,7 +894,7 @@ class TicketWorkflow:
                 # Créer le ticket dans GLPI
                 glpi_ticket = await glpi_client.create_ticket(
                     title=title,
-                    description=f"{description}\n\n---\nMessage original:\n{original_message}",
+                    description=f"{full_description}\n\n---\nMessage original:\n{original_message}",
                     category_id=category_id,
                     priority=priority,
                     user_email=user_email,
@@ -918,7 +970,7 @@ class TicketWorkflow:
         ticket = Ticket(
             ticket_number=self.generate_ticket_number(db),
             title=title,
-            description=description,
+            description=full_description,
             user_message=original_message,
             status="open",
             priority=priority,

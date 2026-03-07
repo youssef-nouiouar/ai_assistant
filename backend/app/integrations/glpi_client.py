@@ -442,6 +442,185 @@ class GLPIClient:
             structured_logger.log_error("GLPI_GET_CATEGORIES_ERROR", str(e))
             raise GLPIClientError(f"Erreur récupération catégories GLPI: {str(e)}")
 
+    # ========================================================================
+    # INVENTAIRE POSTE (ENRICHISSEMENT ENVIRONNEMENT)
+    # ========================================================================
+
+    async def get_user_computers(self, user_id: int) -> List[Dict]:
+        """Trouve les ordinateurs assignés à un utilisateur GLPI"""
+        await self.ensure_session()
+        try:
+            response = await self._http.get(
+                f"{self.base_url}/Computer",
+                headers=self._get_headers(),
+                params={
+                    "searchText[users_id]": str(user_id),
+                    "range": "0-50",
+                    "expand_dropdowns": "true",
+                },
+            )
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPError as e:
+            structured_logger.log_error("GLPI_GET_COMPUTERS_ERROR", str(e))
+            return []
+
+    async def get_computer_baseline(self, computer_id: int) -> Dict:
+        """Infos de base du poste : nom, OS, serial, modèle"""
+        await self.ensure_session()
+        try:
+            response = await self._http.get(
+                f"{self.base_url}/Computer/{computer_id}",
+                headers=self._get_headers(),
+                params={"expand_dropdowns": "true"},
+            )
+            response.raise_for_status()
+            data = response.json()
+            return {
+                "name": data.get("name"),
+                "serial": data.get("serial"),
+                "os": data.get("operatingsystems_id"),
+                "model": data.get("computermodels_id"),
+                "manufacturer": data.get("manufacturers_id"),
+            }
+        except httpx.HTTPError as e:
+            structured_logger.log_error("GLPI_BASELINE_ERROR", str(e))
+            return {}
+
+    async def get_computer_software(self, computer_id: int) -> List[Dict]:
+        """
+        Logiciels installés (2 appels : installations + versions avec noms résolus).
+        Cross-référence Python pour obtenir nom logiciel + version.
+        """
+        await self.ensure_session()
+        headers = self._get_headers()
+        try:
+            # Appel 1 : versions installées sur ce computer
+            resp1 = await self._http.get(
+                f"{self.base_url}/Computer/{computer_id}/Item_SoftwareVersion",
+                headers=headers,
+                params={"range": "0-9999"},
+            )
+            resp1.raise_for_status()
+            installed = resp1.json()
+
+            version_ids = {
+                item["softwareversions_id"]
+                for item in installed
+                if isinstance(item.get("softwareversions_id"), int)
+            }
+
+            # Appel 2 : toutes les SoftwareVersion avec expand_dropdowns
+            resp2 = await self._http.get(
+                f"{self.base_url}/SoftwareVersion",
+                headers=headers,
+                params={"range": "0-9999", "expand_dropdowns": "true"},
+            )
+            resp2.raise_for_status()
+
+            version_map = {
+                v["id"]: {
+                    "software_name": v.get("softwares_id", "?"),
+                    "version": v.get("name", "?"),
+                }
+                for v in resp2.json()
+                if v.get("id") in version_ids
+            }
+
+            seen: set = set()
+            results: List[Dict] = []
+            for item in installed:
+                info = version_map.get(item.get("softwareversions_id"), {})
+                full = f"{info.get('software_name', '?')} {info.get('version', '?')}".strip()
+                if full not in seen:
+                    seen.add(full)
+                    results.append({
+                        "software_name": info.get("software_name", "?"),
+                        "version": info.get("version", "?"),
+                        "full_name": full,
+                    })
+            return results
+        except httpx.HTTPError as e:
+            structured_logger.log_error("GLPI_SOFTWARE_ERROR", str(e))
+            return []
+
+    async def get_computer_hardware(self, computer_id: int) -> Dict:
+        """CPU, RAM, Disques du poste"""
+        await self.ensure_session()
+        headers = self._get_headers()
+        hw: Dict = {}
+        try:
+            for key, endpoint in [
+                ("cpu", "Item_DeviceProcessor"),
+                ("ram", "Item_DeviceMemory"),
+                ("disk", "Item_DeviceHardDrive"),
+            ]:
+                resp = await self._http.get(
+                    f"{self.base_url}/Computer/{computer_id}/{endpoint}",
+                    headers=headers,
+                    params={"expand_dropdowns": "true"},
+                )
+                resp.raise_for_status()
+                hw[key] = resp.json()
+            return hw
+        except httpx.HTTPError as e:
+            structured_logger.log_error("GLPI_HARDWARE_ERROR", str(e))
+            return hw
+
+    async def get_computer_network(self, computer_id: int) -> List[Dict]:
+        """Ports réseau du poste"""
+        await self.ensure_session()
+        try:
+            resp = await self._http.get(
+                f"{self.base_url}/Computer/{computer_id}/NetworkPort",
+                headers=self._get_headers(),
+                params={"expand_dropdowns": "true"},
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            structured_logger.log_error("GLPI_NETWORK_ERROR", str(e))
+            return []
+
+    async def get_computer_printers(self, computer_id: int) -> List[Dict]:
+        """Imprimantes liées au poste"""
+        await self.ensure_session()
+        try:
+            resp = await self._http.get(
+                f"{self.base_url}/Computer/{computer_id}/Computer_Item",
+                headers=self._get_headers(),
+                params={
+                    "searchText[itemtype]": "Printer",
+                    "expand_dropdowns": "true",
+                },
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            structured_logger.log_error("GLPI_PRINTERS_ERROR", str(e))
+            return []
+
+    async def get_user_info(self, user_id: int) -> Dict:
+        """Infos compte utilisateur (pour AUTH)"""
+        await self.ensure_session()
+        try:
+            resp = await self._http.get(
+                f"{self.base_url}/User/{user_id}",
+                headers=self._get_headers(),
+                params={"expand_dropdowns": "true"},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return {
+                "name": data.get("name"),
+                "is_active": data.get("is_active"),
+                "last_login": data.get("last_login"),
+                "profiles_id": data.get("profiles_id"),
+            }
+        except httpx.HTTPError as e:
+            structured_logger.log_error("GLPI_USER_INFO_ERROR", str(e))
+            return {}
+
 
 # ========================================================================
 # INSTANCE GLOBALE (Singleton)
