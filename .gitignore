@@ -39,6 +39,7 @@ INTELLIGENCE_IMPROVEMENT_TASKS.md
 *.log
 *.docx
 *.xlsx
+*.csv
 
 tmpclaude*
 migrations/
