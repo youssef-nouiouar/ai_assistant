@@ -25,7 +25,7 @@ __pycache__/
 knowledge base/
 
 *.ipynb
-
+frontend/.env.local
 document/
 
 nul
@@ -47,3 +47,5 @@ migrations/
 
 screen_shot/
 backend/uploads/
+*.svg
+*.xml

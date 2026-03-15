@@ -78,9 +78,8 @@ D2. SYSTÈME IMPLIQUÉ — valeurs possibles : 0.00 / 0.15 / 0.30
 Le technicien sait-il sur quel système intervenir ?
 
   0.30 → Système nommé + au moins un identifiant
-         (version, modèle, marque, OS, localisation physique)
-         Ex: "Outlook 365" (version), "Windows 11" (OS),
-             "imprimante Canon LBP6030" (marque+modèle), "PC du service RH" (localisation)
+         ( modèle, marque, OS, localisation physique)
+         Ex: ""Windows 11" (OS),"imprimante Canon LBP6030" (marque+modèle), "PC du service RH" (localisation)
 
   0.15 → Système nommé sans aucun identifiant
          Ex: "Outlook", "Teams", "l'imprimante", "le WiFi",

@@ -33,8 +33,15 @@ const PRIORITIES = ["Basse", "Moyenne", "Haute", "Critique"];
 
 const REQUIRED_KB_FIELDS = [
   "intervention_id", "problem_title", "symptoms", "solution_steps",
-  "keywords", "category_id", "complexity",
+  "keywords", "category_id",
 ];
+
+const ALLOWED_KB_FIELDS = new Set([
+  "intervention_id", "problem_title", "user_message", "symptoms",
+  "solution_summary", "solution_steps", "root_cause", "keywords",
+  "category_id", "subcategory", "problem_type", "prevention_tips",
+  "related_keywords_en", "requires_escalation", "glpi_ticket_id",
+]);
 
 // ── The system prompt for AI conversion ──
 const SYSTEM_PROMPT = `Tu es un expert IT chargé de convertir des mini-fiches d'intervention en entrées structurées pour une base de connaissances.
@@ -52,22 +59,15 @@ const SYSTEM_PROMPT = `Tu es un expert IT chargé de convertir des mini-fiches d
   "keywords": ["mot-clé1", "mot-clé2", "..."],
   "category_id": "ID numérique de la catégorie",
   "subcategory": "sous-catégorie",
-  "priority": "Basse|Moyenne|Haute|Critique",
   "problem_type": "type-probleme-en-kebab-case",
-  "estimated_resolution_minutes": nombre,
   "prevention_tips": ["conseil 1 pour éviter ce problème à l'avenir"],
-  "related_keywords_fr": ["mots-clés français pour recherche sémantique"],
   "related_keywords_en": ["english keywords for semantic search"],
-  "complexity": "simple|moyen|complexe",
-  "language": "fr",
-  "requires_escalation": false,
-  "reusable_solution": true
+  "requires_escalation": false
 }
 
 RÈGLE IMPORTANTE : Si le champ "Résolu" est "Non", alors :
 - solution_steps doit contenir uniquement les diagnostics partiels réalisés
 - solution_summary doit être vide ("")
-- reusable_solution doit être false
 - prevention_tips doit être vide ([])
 - requires_escalation doit être true
 
@@ -189,13 +189,18 @@ Convertis ces données en entrée structurée pour la base de connaissances.`;
         throw new Error(`Champs manquants dans la réponse IA : ${missing.join(", ")}`);
       }
 
+      // Strip any fields the model returned that we don't want
+      const filtered = Object.fromEntries(
+        Object.entries(parsed).filter(([k]) => ALLOWED_KB_FIELDS.has(k))
+      );
+
       if (formData.glpiTicketId) {
-        parsed.glpi_ticket_id = formData.glpiTicketId;
+        filtered.glpi_ticket_id = formData.glpiTicketId;
       }
 
-      const md = generateMarkdown(parsed, formData);
-      setKbEntry(parsed);
-      setRawJson(JSON.stringify(parsed, null, 2));
+      const md = generateMarkdown(filtered, formData);
+      setKbEntry(filtered);
+      setRawJson(JSON.stringify(filtered, null, 2));
       setMarkdownOutput(md);
       setCurrentStep("result");
     } catch (err) {
@@ -564,20 +569,10 @@ Convertis ces données en entrée structurée pour la base de connaissances.`;
                   </div>
                 </div>
 
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "16px", marginBottom: "16px" }}>
+                <div style={{ marginBottom: "16px" }}>
                   <div style={cardStyle}>
                     <div style={{ fontSize: "11px", color: colors.textMuted, marginBottom: "4px" }}>Cause racine</div>
                     <p style={{ margin: 0, fontSize: "13px", color: colors.warning, fontWeight: 500 }}>{kbEntry.root_cause || "Non identifiée"}</p>
-                  </div>
-                  <div style={cardStyle}>
-                    <div style={{ fontSize: "11px", color: colors.textMuted, marginBottom: "4px" }}>Complexité</div>
-                    <p style={{ margin: 0, fontSize: "13px", color: colors.text, fontWeight: 500 }}>
-                      {kbEntry.complexity === "simple" ? "🟢 Simple" : kbEntry.complexity === "moyen" ? "🟡 Moyen" : "🔴 Complexe"}
-                    </p>
-                  </div>
-                  <div style={cardStyle}>
-                    <div style={{ fontSize: "11px", color: colors.textMuted, marginBottom: "4px" }}>Temps estimé</div>
-                    <p style={{ margin: 0, fontSize: "13px", color: colors.text, fontWeight: 500 }}>⏱️ {kbEntry.estimated_resolution_minutes || "?"} min</p>
                   </div>
                 </div>
 
@@ -693,11 +688,8 @@ function generateMarkdown(kb, form) {
 **Technicien** : ${form.technicianName} (${form.technicianId})
 **Catégorie** : ${cat?.name || "?"} > ${form.subcategory || "?"}
 **Priorité** : ${form.priority}
-**Complexité** : ${kb.complexity || "?"}
-**Temps estimé** : ${kb.estimated_resolution_minutes || "?"} min
 **Statut** : ${form.resolved ? "Résolu" : "En cours"}
 ${kb.glpi_ticket_id ? `**Ticket GLPI** : #${kb.glpi_ticket_id}` : ""}
-**Langue** : ${kb.language || "fr"}
 
 ---
 
@@ -737,7 +729,6 @@ ${prevention || "Aucun conseil de prévention"}
 
 ## METADONNEES IA
 - **Type problème** : ${kb.problem_type || "?"}
-- **Réutilisable** : ${kb.reusable_solution ? "Oui" : "Non"}
 - **Nécessite escalade** : ${kb.requires_escalation ? "Oui" : "Non"}
 - **Indexé ChromaDB** : En attente
 - **Embedding généré** : En attente
